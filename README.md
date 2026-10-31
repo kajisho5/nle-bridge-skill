@@ -77,6 +77,7 @@ Picture size, rate and length come from ffmpeg-skill `probe` when ffmpeg-skill i
 `diff plan returned` reads the editor's timeline against the plan:
 
 - **Media** match by path, then file name, then file name without extension (a relink to a transcode).
+- **Stereo pairs**: Premiere writes one audio track per channel, so a stereo clip comes back as two linked clips on A1 and A2 (an EDL as an `AA` event). An audio clip that exactly repeats one on an earlier audio track (same media, same source and record ranges) is folded into it, unless the plan has that clip there itself; `channels_folded` lists them and the kept clip names its `channel_tracks`. A copy the editor changed on its own is reported as added (`channel_of`). `--timeline-out` keeps one clip per stereo source.
 - **Clips** pair track by track (V1 with V1, A1 with A1) by the plan id the file still carries, else by the same media with overlapping source ranges. Each pair says how its ends moved (`moved`, `trimmed`, `slipped`, `retimed`, `level`, `enabled` / `disabled`). Leftovers are `removed` and `added`; an added clip that overlaps a plan clip of the same media is marked `split_from` (a razor cut).
 - **Cut points** of the first video track: each plan cut with its returned position and the move in frames, and the cuts added or removed.
 - **Markers** added, removed, moved, renamed, re-commented or re-coloured. Beat-grid markers are counted, not diffed.
@@ -104,7 +105,7 @@ Every command prints one JSON document with `--json`. Existing outputs are refus
 - Neither NLE was available to test against: the files are checked with opentimelineio and its FCP7 XML and CMX 3600 adapters (and ffmpeg-skill's own exports), not by importing them into Premiere or Resolve yet.
 - Cuts, and cross dissolves with `--dissolves`. Other transitions, speed ramps, effects and titles are named, not written; they stay in the agent's ffmpeg path or are redone in the NLE. A FCP7 `center` dissolve of an odd length has no exact centre: this skill puts the odd frame before the cut (ffmpeg-skill's rule), OTIO's FCP7 adapter one frame later.
 - Clips are counted at the timeline rate; a source at another rate is a `RATE_MISMATCH` warning and the NLE conforms it.
-- FCP7 XML markers have no colour. Premiere writes one audio track per channel, so a stereo clip comes back as two linked clips on A1 and A2.
+- FCP7 XML markers have no colour. Premiere writes one audio track per channel, so a stereo clip comes back as two linked clips on A1 and A2; `diff` folds such exact copies back into one clip (an edited copy is reported, not folded).
 - FCPXML (Final Cut Pro X) and AAF are not read or written here.
 
 ## Tests
@@ -114,7 +115,7 @@ pip install -e '.[test]'
 python -m unittest discover -s tests -v
 ```
 
-Timecode at 23.976, 25, 29.97 DF / NDF and 59.94 DF / NDF (anchors, every frame of the first 40 000 round trip, labels drop-frame skips are refused); every format written and read back identical at every rate; the same files read by opentimelineio and its FCP7 / CMX 3600 adapters frame for frame, and timelines written by those adapters read back; editor changes (trims, a razor cut, a removed clip, moved and added markers) on OTIO, FCP7 XML and EDL; beat markers and beat offsets; cross dissolves written, read back and compared in all three formats, read by OTIO's adapters and written by them; the agent's project IR and an ffmpeg-skill render project as input; conform packages (relink facts, missing media, deterministic zip). With ffmpeg and an ffmpeg-skill checkout, media facts come from the real `probe`, and ffmpeg-skill's own `render --export-timeline` output is read and compared with this skill's, with and without its default dissolve; with a Velisa checkout, the registry conformance checks and the contract schema run.
+Timecode at 23.976, 25, 29.97 DF / NDF and 59.94 DF / NDF (anchors, every frame of the first 40 000 round trip, labels drop-frame skips are refused); every format written and read back identical at every rate; the same files read by opentimelineio and its FCP7 / CMX 3600 adapters frame for frame, and timelines written by those adapters read back; editor changes (trims, a razor cut, a removed clip, moved and added markers) on OTIO, FCP7 XML and EDL; Premiere-style per-channel audio tracks and an EDL `AA` event folded back into one clip; beat markers and beat offsets; cross dissolves written, read back and compared in all three formats, read by OTIO's adapters and written by them; the agent's project IR and an ffmpeg-skill render project as input; conform packages (relink facts, missing media, deterministic zip). With ffmpeg and an ffmpeg-skill checkout, media facts come from the real `probe`, and ffmpeg-skill's own `render --export-timeline` output is read and compared with this skill's, with and without its default dissolve; with a Velisa checkout, the registry conformance checks and the contract schema run.
 
 ## License
 

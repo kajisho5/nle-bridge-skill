@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from xml.sax.saxutils import escape
 
 from .model import (DEFAULT_MARKER_COLOR, NleBridgeError, asset_start_frames, base_name, path_to_url, rate_of,
-                    start_frames, total_frames, url_to_path, warning)
+                    start_frames, total_frames, unique_id, url_to_path, warning)
 from .timecode import frames_to_timecode, is_ntsc, nominal, rate_str
 from .transitions import AUDIO_NAME, VIDEO_NAME, is_dissolve, tails
 
@@ -268,6 +268,7 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
         return aid
 
     tracks: List[Dict[str, Any]] = []
+    seen_ids: set = set()
     media = seq.find("media")
     for kind in ("video", "audio"):
         for ti, t in enumerate(media.findall(f"{kind}/track") if media is not None else []):
@@ -322,7 +323,9 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
                     e = s + (cout - cin)
                 last_end = e
                 comment = _txt(el, "comments/mastercomment1") or ""
-                iid = comment[len("nle-bridge:"):] if comment.startswith("nle-bridge:") else f"{'V' if kind == 'video' else 'A'}{ti + 1}-{len(items) + 1}"
+                tname = f"{'V' if kind == 'video' else 'A'}{ti + 1}"
+                iid = unique_id(comment[len("nle-bridge:"):] if comment.startswith("nle-bridge:") else
+                                f"{tname}-{len(items) + 1}", tname, seen_ids)
                 it: Dict[str, Any] = {"id": iid, "kind": "clip", "asset": asset_for(fe.get("id")),
                                       "name": _txt(el, "name") or "", "source_in": cin, "source_out": cin + (e - s),
                                       "record_in": s, "record_out": e,

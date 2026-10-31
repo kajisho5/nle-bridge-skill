@@ -4,7 +4,13 @@ The returned file (OTIO, FCP7 XML or EDL) is read into the same frame-based mode
 
 1. Media: each returned media file is matched to a plan asset by path, else by file name (case-insensitive),
    else by file name without extension (an NLE that relinked to a transcode). Unmatched ones are new media.
-2. Clips: tracks pair by kind and order (V1 with V1, A1 with A1). Within a pair, a returned clip matches a plan
+2. Stereo pairs: Premiere writes one audio track per channel, so a stereo clip comes back as two linked clips on
+   A1 and A2 (an EDL as an `AA` event). A returned audio clip that repeats one on an earlier audio track exactly
+   (same media, same source and record ranges) is folded into it, unless the plan itself has that clip on that
+   track; the folded clips are listed under `channels_folded`, and the kept clip names its `channel_tracks`. A
+   channel track with clips left over (a copy the editor changed alone) does not take part in the track pairing;
+   its leftovers are reported as added (`channel_of` the track they repeat).
+   Clips: tracks pair by kind and order (V1 with V1, A1 with A1), after the fold. Within a pair, a returned clip matches a plan
    clip when it plays the same media and their source ranges overlap; the plan id carried in the file (OTIO
    metadata, the FCP7 master comment, the EDL `* NLE-BRIDGE ID` comment) is preferred when an NLE kept it, then
    the largest overlap. Each pair says how its record and source ends moved (moved / trimmed / slipped);
@@ -100,6 +106,56 @@ def _pair_track(o_items: List[Dict[str, Any]], r_items: List[Dict[str, Any]], am
     return pairs, removed, added
 
 
+_RANGE = ("source_in", "source_out", "record_in", "record_out")
+
+
+def fold_channel_pairs(orig: Dict[str, Any], ret: Dict[str, Any], amap: Dict[str, Optional[str]],
+                       keep_leftovers: bool = False) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """The returned timeline with per-channel copies of a clip folded into one (see 2. above), what was folded, and
+    the channel tracks with clips left over. A channel track is taken out of the timeline (so the next audio track
+    pairs with the plan's next one) unless `keep_leftovers` keeps the leftovers in place."""
+    o_audio = [t for t in orig["tracks"] if t["kind"] == "audio"]
+    kept_audio: List[Tuple[str, List[Dict[str, Any]]]] = []
+    tracks: List[Dict[str, Any]] = []
+    folded: List[Dict[str, Any]] = []
+    leftovers: List[Dict[str, Any]] = []
+    ai = -1
+    for t in ret["tracks"]:
+        if t["kind"] != "audio":
+            tracks.append(t)
+            continue
+        ai += 1
+        plan_items = o_audio[ai]["items"] if ai < len(o_audio) else []
+        keep: List[Dict[str, Any]] = []
+        into: Optional[str] = None
+        for r in t["items"]:
+            twin, twin_track = None, None
+            for name, items in kept_audio:
+                twin = next((x for x in items if x.get("asset") == r.get("asset")
+                             and all(x[k] == r[k] for k in _RANGE)), None)
+                if twin is not None:
+                    twin_track = name
+                    break
+            planned = any(o.get("asset") == amap.get(r.get("asset"))
+                          and all(o[k] == r[k] for k in ("source_in", "record_in", "record_out")) for o in plan_items)
+            if twin is None or planned:
+                keep.append(dict(r))
+                continue
+            twin.setdefault("channel_tracks", [twin_track]).append(t["name"])
+            into = into or twin_track
+            folded.append({"track": t["name"], "returned_id": r["id"], "into_track": twin_track,
+                           "into_returned_id": twin["id"], "name": r["name"], "record_in": r["record_in"],
+                           "record_out": r["record_out"]})
+        if into and keep:
+            leftovers.append({"track": t["name"], "channel_of": into, "items": keep})
+            if not keep_leftovers:
+                continue
+        if keep or not t["items"]:
+            tracks.append(dict(t, items=keep))
+            kept_audio.append((t["name"], keep))
+    return dict(ret, tracks=tracks), folded, leftovers
+
+
 def _edit_points(items: List[Dict[str, Any]], end: int) -> List[int]:
     pts = set()
     for it in items:
@@ -158,6 +214,7 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
         return frames_to_timecode(r_start + f, rate, drop)
 
     amap, new_media = match_assets(orig, ret)
+    ret, folded, leftovers = fold_channel_pairs(orig, ret, amap)
     o_tracks = {k: [t for t in orig["tracks"] if t["kind"] == k] for k in ("video", "audio")}
     r_tracks = {k: [t for t in ret["tracks"] if t["kind"] == k] for k in ("video", "audio")}
     clips_out: List[Dict[str, Any]] = []
@@ -203,7 +260,8 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                                   **({"gain_db": {"plan": o.get("gain_db"), "returned": r.get("gain_db")}}
                                      if "level" in changes else {}),
                                   **({"transition_in": {"plan": _transition(o), "returned": _transition(r)}}
-                                     if "transition" in changes else {})})
+                                     if "transition" in changes else {}),
+                                  **({"channel_tracks": r["channel_tracks"]} if r.get("channel_tracks") else {})})
             for o in removed:
                 removed_out.append({"track": track, "plan_id": o["id"], "asset": o.get("asset"), "name": o["name"],
                                     "record_in": otc(o["record_in"]), "record_out": otc(o["record_out"]),
@@ -217,6 +275,15 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                                   "record_out": rtc(r["record_out"]), "source_in": r["source_in"],
                                   "source_out": r["source_out"], "frames": r["record_out"] - r["record_in"],
                                   **({"split_from": split} if split else {})})
+
+    for lo in leftovers:  # a channel copy the editor changed on its own
+        for r in lo["items"]:
+            added_out.append({"track": lo["track"], "returned_id": r["id"], "asset": amap.get(r.get("asset")),
+                              "media": ret["assets"].get(r.get("asset"), {}).get("path"), "name": r["name"],
+                              "new_media": amap.get(r.get("asset")) is None, "record_in": rtc(r["record_in"]),
+                              "record_out": rtc(r["record_out"]), "source_in": r["source_in"],
+                              "source_out": r["source_out"], "frames": r["record_out"] - r["record_in"],
+                              "channel_of": lo["channel_of"]})
 
     # cut points on the first video track
     o_v1 = o_tracks["video"][0]["items"] if o_tracks["video"] else []
@@ -275,12 +342,14 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                         "cuts_added": sum(1 for c in cuts if c["status"] == "added"),
                         "cuts_removed": sum(1 for c in cuts if c["status"] == "removed"),
                         "transitions_changed": sum(1 for c in clips_out if "transition" in c["changes"]),
+                        "channel_clips_folded": len(folded),
                         "markers_added": len(markers["added"]), "markers_removed": len(markers["removed"]),
                         "markers_changed": len(markers["changed"]),
                         "duration_delta_frames": r_end - o_end,
                         "identical": not (changed or added_out or removed_out or markers["added"] or markers["removed"]
                                           or markers["changed"] or r_end != o_end)},
             "clips": clips_out, "added": added_out, "removed": removed_out, "cuts": cuts, "markers": markers,
+            "channels_folded": [dict(f, record_in=rtc(f["record_in"]), record_out=rtc(f["record_out"])) for f in folded],
             "beats": beats_summary, "not_compared": not_compared, "not_imported": ret.get("warnings") or []}
 
 
@@ -329,6 +398,7 @@ def as_plan(orig: Dict[str, Any], ret: Dict[str, Any], returned_path: Optional[s
     """The returned timeline as a new plan version: media mapped back to the plan's asset ids and paths
     (new media keep their own), provenance pointing at the plan and the returned file."""
     amap, _ = match_assets(orig, ret)
+    ret, _, _ = fold_channel_pairs(orig, ret, amap, keep_leftovers=True)  # one clip per stereo source, as the plan has it
     assets = {}
     rename: Dict[str, str] = {}
     for rid, a in ret["assets"].items():

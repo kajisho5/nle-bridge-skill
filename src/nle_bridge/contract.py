@@ -41,7 +41,8 @@ TOOLS = [
               "[--zip]", "[--no-hash]", "[--no-probe]", "[--ffmpeg-skill <dir>]", "[--strict]", "[--overwrite]", "--json"]},
     {"tool_id": "nle-bridge/diff", "role": "measurement", "writes_media": False, "mutates_input": False, "deterministic": True,
      "description": "Round trip: the timeline an NLE gives back (OTIO, FCP7 XML or EDL) against the plan: clips changed "
-                    "(moved, trimmed, slipped, level, transition), added (split_from on a razor cut) and removed, cut points moved in "
+                    "(moved, trimmed, slipped, level, transition), added (split_from on a razor cut) and removed, Premiere's "
+                    "per-channel copies of a stereo clip folded into one, cut points moved in "
                     "frames, markers added / removed / changed, and with a beat grid how many frames each cut sits off "
                     "the nearest beat. Optionally the returned timeline as a new plan version",
      "argv": ["diff", "<plan>", "<returned.otio|.xml|.edl>", "[-o <diff.json>]", "[--timeline-out <plan.json>]",

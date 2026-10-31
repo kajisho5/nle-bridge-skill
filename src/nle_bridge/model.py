@@ -100,6 +100,18 @@ def url_to_path(url: str) -> str:
     return path
 
 
+def unique_id(iid: str, track: str, seen: set) -> str:
+    """An item id that is not yet in `seen` (and add it): a returned file can carry one plan id on several clips,
+    e.g. Premiere's per-channel copies of a stereo clip on A1 and A2; the later ones become `<id>@<track>`."""
+    out = iid
+    n = 1
+    while out in seen:
+        out = f"{iid}@{track}" + (f"-{n}" if n > 1 else "")
+        n += 1
+    seen.add(out)
+    return out
+
+
 def base_name(path: str) -> str:
     return re.split(r"[\\/]", path)[-1] if path else ""
 
