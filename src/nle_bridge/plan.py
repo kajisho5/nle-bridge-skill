@@ -23,7 +23,9 @@ from fractions import Fraction
 from typing import Any, Callable, Dict, List, Optional
 
 from . import edl, fcp7, otio_io, srt
-from .model import NleBridgeError, asset_start_frames, base_name, normalise, rate_of, resolve_path, warning
+from .engine import EngineError
+from .model import (NleBridgeError, asset_start_frames, base_name, normalise, rate_of, resolve_path, take_probe_timecode,
+                    warning)
 from .timecode import TimecodeError, parse_rate, rate_str, seconds_to_frames
 
 Prober = Callable[[str], Optional[Dict[str, Any]]]
@@ -345,11 +347,12 @@ def load(path: str, *, rate: Any = None, subject: Optional[str] = None, prober: 
     if kind == "native":
         if drop_frame is not None:
             doc = dict(doc, drop_frame=drop_frame)
-        return normalise(doc, base_dir=base_dir, rate=rate)
+        return probe_timecodes(normalise(doc, base_dir=base_dir, rate=rate), prober)
     if kind == "agent":
-        return _df(from_agent(doc, subject=subject, rate=rate, base_dir=base_dir), drop_frame)
+        return probe_timecodes(_df(from_agent(doc, subject=subject, rate=rate, base_dir=base_dir), drop_frame), prober)
     if kind == "render":
-        return _df(from_render(doc, rate=rate, base_dir=base_dir, prober=prober, dissolves=dissolves), drop_frame)
+        return probe_timecodes(_df(from_render(doc, rate=rate, base_dir=base_dir, prober=prober, dissolves=dissolves),
+                                   drop_frame), prober)
     if kind == "otio":
         raw = otio_io.read(text, name_hint=name, rate=rate)
     elif kind == "fcp7":
@@ -361,6 +364,29 @@ def load(path: str, *, rate: Any = None, subject: Optional[str] = None, prober: 
     if drop_frame is not None and kind != "edl":
         raw["drop_frame"] = drop_frame
     return normalise(raw, base_dir=base_dir)
+
+
+def probe_timecodes(tl: Dict[str, Any], prober: Optional[Prober]) -> Dict[str, Any]:
+    """Each media file's start timecode from ffmpeg-skill `probe` (3.0.0+ reports `timecode`), for a plan, the agent's
+    project IR and a render project alike: an asset the plan gives none takes the probe's (`start_timecode_from:
+    "ffmpeg-skill probe"`, drop-frame from the label); a plan value that differs stays and is a
+    START_TIMECODE_MISMATCH warning (model.take_probe_timecode). Without ffmpeg-skill, with a 2.x probe that has no
+    `timecode`, for media that carries none, or for a file the probe cannot read, the asset is left as it was. In
+    place; returns `tl`."""
+    if prober is None:
+        return tl
+    r = rate_of(tl)
+    for aid, a in tl["assets"].items():
+        if a.get("start_timecode_from") or not os.path.isfile(a["path"]):
+            continue
+        try:
+            doc = prober(a["path"])
+        except EngineError:  # an optional fact: a file probe cannot read keeps the plan's (conform still reports it)
+            continue
+        w = take_probe_timecode(aid, a, doc, r)
+        if w:
+            tl["warnings"].append(w)
+    return tl
 
 
 def _df(tl: Dict[str, Any], drop_frame: Optional[bool]) -> Dict[str, Any]:

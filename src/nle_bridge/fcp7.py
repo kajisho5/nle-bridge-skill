@@ -26,7 +26,7 @@ from xml.sax.saxutils import escape
 
 from .model import (DEFAULT_MARKER_COLOR, NleBridgeError, asset_start_frames, base_name, path_to_url, rate_of,
                     start_frames, total_frames, unique_id, url_to_path, warning)
-from .timecode import frames_to_timecode, is_ntsc, nominal, rate_str
+from .timecode import DROP_FRAME_RATES, frames_to_timecode, is_ntsc, nominal, rate_str
 from .transitions import AUDIO_NAME, VIDEO_NAME, is_dissolve, tails
 
 _GRID_NAME = re.compile(r"^(Bar \d+|Beat \d+\.\d+)$")
@@ -255,9 +255,14 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
         frate = _rate(f.find("rate")) if f is not None else None
         ftc = f.find("timecode") if f is not None else None
         sframe = int(float(_txt(ftc, "frame") or 0)) if ftc is not None else 0
+        # the file's own <displayformat> says how its start is labelled (DF only exists at 29.97 / 59.94)
+        sdrop = (ftc is not None and (_txt(ftc, "displayformat") or "").upper() == "DF"
+                 and (frate or rate) in DROP_FRAME_RATES)
         a: Dict[str, Any] = {"path": path or name, "name": name,
                              "duration_frames": int(float(_txt(f, "duration"))) if _txt(f, "duration") else None,
-                             "start_timecode": frames_to_timecode(sframe, frate or rate, False) if sframe else None}
+                             "start_timecode": frames_to_timecode(sframe, frate or rate, sdrop) if sframe else None}
+        if sframe:
+            a["drop_frame"] = sdrop
         if frate and frate != rate:
             a["fps"] = float(frate)
         w, h = _txt(f, "media/video/samplecharacteristics/width"), _txt(f, "media/video/samplecharacteristics/height")

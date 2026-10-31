@@ -25,7 +25,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import __version__
 from .export import sha256_file, write_files
-from .model import NleBridgeError, asset_start_frames, base_name, rate_of, start_frames, summary, warning
+from .model import (PROBE, NleBridgeError, asset_start_frames, base_name, rate_of, start_frames, summary,
+                    take_probe_timecode, warning)
 from .timecode import frames_to_timecode, seconds_to_frames
 from .transitions import resolve as resolve_transitions, tails
 
@@ -59,9 +60,16 @@ def relink_entries(tl: Dict[str, Any], probe: Optional[Callable[[str], Optional[
     for aid, a in tl["assets"].items():
         path = a["path"]
         exists = os.path.isfile(path)
+        p = probe(path) if (probe and exists) else None
+        if p and not a.get("start_timecode_from"):  # a timeline read without the prober: take the probe's here
+            a = dict(a)
+            w = take_probe_timecode(aid, a, p, rate)
+            if w:
+                warns.append(w)
         e: Dict[str, Any] = {"asset": aid, "name": a["name"], "original_path": path, "package_path": None,
                              "exists": exists, "size_bytes": os.path.getsize(path) if exists else a.get("size_bytes"),
                              "sha256": None, "start_timecode": a.get("start_timecode"),
+                             "drop_frame": a.get("drop_frame") if a.get("start_timecode") else None,
                              "duration_frames": a.get("duration_frames"), "duration": None,
                              "fps": a.get("fps"), "width": a.get("width"), "height": a.get("height"),
                              "has_video": a.get("has_video", True), "has_audio": a.get("has_audio", True),
@@ -78,7 +86,6 @@ def relink_entries(tl: Dict[str, Any], probe: Optional[Callable[[str], Optional[
         if not exists:
             warns.append(warning("MEDIA_MISSING", f"{a['name']}: {path} does not exist here; the manifest carries the "
                                  "plan's facts only and the editor must relink it", item=aid))
-        p = probe(path) if (probe and exists) else None
         for k in ("fps", "width", "height"):
             e["facts_from"][k] = "plan" if e[k] is not None else None
         if p:
@@ -99,10 +106,19 @@ def relink_entries(tl: Dict[str, Any], probe: Optional[Callable[[str], Optional[
             e["duration"] = round(float(Fraction(e["duration_frames"]) / rate), 3)
             e["facts_from"]["duration"] = "plan"
         e["facts_from"].setdefault("duration", None)
-        e["facts_from"]["start_timecode"] = "plan" if e["start_timecode"] else None
+        tc_from = (a.get("start_timecode_from") or "plan") if e["start_timecode"] else None
+        e["facts_from"]["start_timecode"] = e["facts_from"]["drop_frame"] = tc_from
         if not e["start_timecode"]:
-            e["start_timecode_note"] = ("not known: ffmpeg-skill probe does not report a media start timecode and the plan "
-                                        "gives none; 00:00:00:00 is assumed in the EDL and the XML")
+            if p is None:
+                why = "no ffmpeg-skill probe of the file" + ("" if exists else " (it is not here)")
+            elif not isinstance(p.get("timecode"), dict):
+                why = "this ffmpeg-skill's probe does not report one (3.0.0 and later do)"
+            else:
+                why = "ffmpeg-skill probe found no timecode tag in the file"
+            e["start_timecode_note"] = (f"not known: {why}, and the plan gives none; 00:00:00:00 is assumed in the "
+                                        "OTIO, the EDL and the XML")
+        if tc_from == PROBE:
+            e["start_timecode_source"] = a.get("start_timecode_source")
         base = asset_start_frames(a, rate)
         uses = []
         for t in tl["tracks"]:
@@ -141,6 +157,14 @@ def package(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optio
         if rp == os.path.realpath(out_dir) or rp.startswith(os.path.realpath(out_dir) + os.sep):
             raise NleBridgeError("OUTPUT_IS_INPUT", f"the package folder {out_dir} holds an input ({p})")
     os.makedirs(os.path.join(out_dir, "timeline"), exist_ok=True)
+    if probe and any(not a.get("start_timecode_from") for a in tl["assets"].values()):
+        # start timecodes the probe reports go into the timelines too, not only into relink.json
+        tl = json.loads(json.dumps(tl))
+        for aid, a in tl["assets"].items():
+            if not a.get("start_timecode_from") and os.path.isfile(a["path"]):
+                w = take_probe_timecode(aid, a, probe(a["path"]), rate_of(tl))
+                if w:
+                    tl["warnings"].append(w)
     relink = relink_entries(tl, probe, hash_media, dissolves)
     warns = list(relink["warnings"])
     tl_out = tl

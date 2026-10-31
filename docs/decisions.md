@@ -28,7 +28,7 @@ Velisa's roadmap gives this repository the timeline hand-over to Premiere Pro an
 - **One model, frames at exact rates.** Every reader produces, and every writer consumes, `nle-bridge/timeline@1`: assets, video and audio tracks of clips (`source_in` / `source_out` from the media's first frame, `record_in` / `record_out` from the timeline's first frame, out points exclusive), markers, captions. All times are whole frames at a rational rate: 23.976 = 24000/1001, 29.97 = 30000/1001, 59.94 = 60000/1001, also 47.952 and 119.88.
 - **Seconds to frames.** Rounded to the nearest frame on exact rationals, ties to even. That is Python's `round()`, the rule ffmpeg-skill's timeline export uses, so a cut planned at 2.5 s at 25 fps lands on frame 62 in both exports (checked against ffmpeg-skill in the integration test).
 - **Timecode.** Non-drop counts nominal frames (24 for 23.976). Drop-frame exists at 29.97 and 59.94 only and skips 2 (4) frame labels every minute except every tenth; labels it skips are refused, never moved. DF is written with `;` before the frames and `FCM: DROP FRAME` / `<displayformat>DF</displayformat>`. The record side starts at 01:00:00:00 unless the plan says otherwise (ffmpeg-skill's EDL does the same).
-- **Source timecode.** A media file's start timecode comes from the plan (`assets.*.start_timecode`). It is drop-frame when the plan says so, when the label has `;`, or, unstated, when the media runs at a drop-frame timeline's rate. OTIO `source_range` and EDL source timecodes are absolute (start timecode + in point), as NLEs write them; FCP7 `in` / `out` count from the media's first frame with the start in the file's `<timecode>`. ffmpeg-skill `probe` does not report a start timecode, so without one in the plan it is 00:00:00:00 and the relink manifest says it is unknown.
+- **Source timecode.** A media file's start timecode comes from the plan (`assets.*.start_timecode`). It is drop-frame when the plan says so, when the label has `;`, or, unstated, when the media runs at a drop-frame timeline's rate. OTIO `source_range` and EDL source timecodes are absolute (start timecode + in point), as NLEs write them; FCP7 `in` / `out` count from the media's first frame with the start in the file's `<timecode>`. ffmpeg-skill `probe` did not report a start timecode, so without one in the plan it was 00:00:00:00 and the relink manifest said it was unknown. Since ffmpeg-skill 3.0.0 it does, and a plan without one takes the probe's (ADR-008).
 - **OTIO.** Timeline.1 / Stack.1 / Track.1 / Clip.2 / Gap.1 / Marker.2 / ExternalReference.1, `file:///` URLs, markers on the stack, `global_start_time` at the record start. This is the shape ffmpeg-skill writes. Plan ids and marker kinds go in `metadata.nle_bridge`. OTIO has no audio-level schema: a level is metadata only (`LEVEL_METADATA_ONLY`).
 - **FCP7 XML.** xmeml version 4, the version Premiere writes. One sequence; `rate` as timebase + ntsc; a `file` element in full on first use and by id after; `file://localhost/` URLs (Premiere's form) for POSIX and Windows paths alike; audio levels as the `audiolevels` filter (linear gain, 1.0 = 0 dB); sequence markers. FCP7 has no marker colour (`MARKER_COLOR_NOT_EXPORTED`). The plan id rides in `mastercomment1`. Files with `<!ENTITY` are refused on read.
 - **EDL.** CMX 3600, cuts only. `V` for the first video track and `A`, `A2`, `A3`, `A4` for audio tracks 1-4; other tracks are `TRACK_NOT_EXPORTED`. Reel `AX` with the file in `* FROM CLIP NAME:` and `* SOURCE FILE:` (as ffmpeg-skill writes them), and the plan id in `* NLE-BRIDGE ID:`. Markers are `* LOC: <tc> <COLOUR> <name>`, the form Resolve writes and reads. The reader takes reel names with spaces (OTIO's adapter writes them) and `* FROM CLIP:` URLs. An EDL states no rate, so reading one needs the plan's rate or `--fps`.
@@ -41,7 +41,7 @@ Velisa's roadmap gives this repository the timeline hand-over to Premiere Pro an
 
 - **Real NLE import.** Import the files into Premiere 25.x and Resolve Studio once one is available, and record what each keeps (marker colours from the EDL, levels from FCP7, OTIO metadata).
 - **Dissolves.** OTIO, FCP7 XML and EDL can all carry a cross dissolve; written as an option later, centred on the cut as ffmpeg-skill does. Done: `--dissolves`, ADR-006.
-- **Media start timecode.** Needs ffmpeg-skill `probe` to report the `tmcd` / `timecode` tag; ffmpeg-skill is treated as complete, so it is noted, not changed.
+- **Media start timecode.** Needs ffmpeg-skill `probe` to report the `tmcd` / `timecode` tag; ffmpeg-skill is treated as complete, so it is noted, not changed. Done: ffmpeg-skill 3.0.0 reports it, ADR-008.
 
 ## ADR-002 Beat grid: markers from a grid that is read, never made
 
@@ -72,7 +72,7 @@ Generating music, measuring beats (ffmpeg-skill `scenes --beats`), and moving cu
 ### Conform package
 
 - **Layout.** `timeline/` (the exports and the plan as `nle-bridge/timeline@1`), `media/` only with `--copy-media` (the timelines then point at the copies), `relink.json` (`nle-bridge/relink@1`) and `manifest.json` (`nle-bridge/conform@1`: every file with its size and sha256, the warnings). Optionally a zip next to the folder.
-- **Relink facts.** For each media file: the plan's path, the path in the package, whether it exists, size, sha256 (streamed; `--no-hash` skips it), start timecode, length, fps and picture size, and the ranges the timeline uses (source in / out and record in / out as timecode). `facts_from` says where each fact came from: `ffmpeg-skill probe` when ffmpeg-skill is found (the only media boundary; this skill never runs ffprobe), `plan`, `computed`, or null. A sha256 that differs from the plan's is `MEDIA_CHANGED`; a missing file is `MEDIA_MISSING`, a warning, because a package is often made where the media is not.
+- **Relink facts.** For each media file: the plan's path, the path in the package, whether it exists, size, sha256 (streamed; `--no-hash` skips it), start timecode, length, fps and picture size, and the ranges the timeline uses (source in / out and record in / out as timecode). `facts_from` says where each fact came from: `ffmpeg-skill probe` when ffmpeg-skill is found (the only media boundary; this skill never runs ffprobe), `plan`, `computed`, or null. The start timecode follows ADR-008. A sha256 that differs from the plan's is `MEDIA_CHANGED`; a missing file is `MEDIA_MISSING`, a warning, because a package is often made where the media is not.
 - **Determinism.** No clock time anywhere. The zip has sorted entries and the date 1980-01-01, and is written with ZIP64 for large media.
 - **Safety.** The package folder must be new or empty (or `--overwrite`), must not contain an input, and only the package's own files are written.
 
@@ -122,6 +122,8 @@ Velisa's roadmap: live NLE control is reuse. Do not fork the community servers; 
 What each NLE keeps on import (roadmap step 8, with the real software), and the agent calling these servers (video-production-agent).
 
 ## ADR-005 Media start timecode stays a hand-over to ffmpeg-skill; this skill does not run ffprobe
+
+**Status:** closed. ffmpeg-skill 3.0.0 added the field this ADR asked for; how it is read is ADR-008.
 
 Checked 2026-10-31 against ffmpeg-skill 2.24 `scripts/_common/probe.py`, Velisa `ecosystem.json`, `docs/ecosystem/ROADMAP.md`, `docs/DEPENDENCY_GRAPH.md` and `docs/CAPABILITY_MATRIX.md`, and ingest-skill `src/ingest_skill/core.py` (all read only).
 
@@ -187,3 +189,35 @@ Premiere writes one audio track per channel: a stereo clip goes out to FCP7 XML 
 ### Not decided here
 
 A real Premiere export as a fixture (step 8). Folding more than two channels works the same way (each later exact copy folds into the first), but a 5.1 layout has not been seen from a real NLE.
+
+## ADR-008 Media start timecode from ffmpeg-skill probe; 2.x still accepted
+
+Checked 2026-10-31 against ffmpeg-skill 3.0.0 (`1dc2f52`, PR kajisho5/ffmpeg-skill#387: CHANGELOG "3.0.0", `docs/contract.md` "What 3.0 changed" and the `probe.timecode` row, `scripts/_common/probe.py` `start_timecode`, `contract --json` `removed`) and v2.24.1, all read only, and against ADR-005's hand-over.
+
+### What changed upstream
+
+- **Added:** `probe --json` has `timecode: {value, drop_frame, source}`: the first `HH:MM:SS[:;.]FF` `timecode` tag of the video stream, then a `tmcd` data stream, then the container; `drop_frame` is the `;` / `.` before the frames; `source` is `stream:<index>` or `format`; three nulls when none. Exactly the hand-over's shape.
+- **Removed:** Python 3.9 and FFmpeg 5.x (`requirements.python >=3.10`, `ffmpeg >=6.1`).
+- **Changed:** `cut.py` defaults and the meaning of its `precision` / `keyframe_snapped`. This skill does not call `cut.py` (only `probe`, and the tests read `render --export-timeline` files), so nothing here depends on them.
+- `contract_version` stays 2.0; the probe keys this skill already read (`duration`, `video.fps` / `width` / `height`, `audio.channels`) are unchanged.
+
+### Version range: accept 2.x and read the field when present
+
+The hand-over said to raise the floor to the release that adds the field. That release is a major one, and it dropped Python 3.9, which this skill still supports (`requires-python >=3.9`, CI on 3.9): ffmpeg-skill's scripts run with this skill's Python, so on 3.9 only 2.x is supported upstream. Raising the floor would turn a 2.x install from "every fact but the start timecode" into "no probe at all", for one optional field. So:
+
+- **`version_range: ">=2.0.0 <4.0.0"`**, with `fields: {"probe.timecode": {"since": "3.0.0", ...}}` in the contract.
+- **Feature detection, not version checks**, in the code path: a probe document with a `timecode` object is read; one without it (2.x) leaves the start timecode not known, exactly as before. `doctor` reads the version only to add a note (`engine.probe_timecode`).
+- **Upper bound `<4.0.0`**: 3.x keeps every probe key by ffmpeg-skill's stability promise; a 4.0 is re-checked first.
+
+### Decision
+
+- **Where it is read.** In `plan.load` for a plan, an agent project IR and a render project alike (`probe_timecodes`, after the input is normalised), so `export`, `conform` and `diff` see the same start. One function (`model.take_probe_timecode`) decides; `_probe_asset` keeps reading the facts render projects need for their lengths, and the timecode comes from the same probe document (the prober probes each file once per run). `conform` applies it again for a timeline that was read without a prober (API use), to the timelines it writes as well as to `relink.json`.
+- **Plan first.** A start timecode in the plan wins. When the probe reads a different one (compared as frames at the media's rate), the plan's is used and `START_TIMECODE_MISMATCH` names both and the probe's source. Not a loss code: nothing is dropped, and `--strict` does not refuse it.
+- **From the probe.** `start_timecode` = `timecode.value`; `drop_frame` from the label, and only at 29.97 / 59.94 (a `;` at 25 fps is read as non-drop). The media's fps comes along when the plan has none (the start counts in the media's rate), and so does its length (OTIO carries the start in the reference's `available_range`, which needs one). A label that is not valid timecode at that rate (a drop-frame label that does not exist, a frame field past the rate) is `START_TIMECODE_UNREADABLE` and the start stays not known. A file the probe cannot read keeps the plan's facts in `export` (the timecode is optional there); `conform` still reports the probe failure as before.
+- **`relink.json`.** `start_timecode`, a per-file `drop_frame`, `facts_from.start_timecode` and `facts_from.drop_frame` (`"ffmpeg-skill probe"` or `"plan"`), `start_timecode_source` (the probe's `source`). When unknown, `start_timecode_note` says why: no probe, a probe without `timecode` (ffmpeg-skill before 3.0.0), or no timecode tag in the file.
+- **Reading back.** The FCP7 XML reader labels a file's `<timecode>` with its own `<displayformat>` (it labelled every start non-drop; the frame count was already right).
+- **CI.** The integration job runs against ffmpeg-skill v3.0.0, v2.24.1 and main (Python 3.12, Ubuntu 24.04's FFmpeg 6.1). `RealProbeTests` writes files with `ffmpeg -timecode` (a MOV and an MP4 at 25 fps, `01:00:00;00` at 30000/1001) and checks the 3.x path, or the not-known path on 2.x, against the same files. The unit jobs (Python 3.9 / 3.12, three OSes) do not use ffmpeg-skill.
+
+### Not decided here
+
+ffmpeg-skill's own `render --export-timeline` writes source ranges from the media's first frame (it does not use the timecode). Reading one back against a plan whose media has a start timecode would show every clip as slipped by the start; that is ffmpeg-skill's export to change if wanted, not this skill's. The integration test's media carries no timecode, so it is not affected.

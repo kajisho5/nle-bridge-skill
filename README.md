@@ -70,7 +70,7 @@ pkg/
 pkg.zip                                        with --zip: fixed entry dates, sorted, so the same input gives the same bytes
 ```
 
-Picture size, rate and length come from ffmpeg-skill `probe` when ffmpeg-skill is found (`--ffmpeg-skill`, `$FFMPEG_SKILL_DIR`, `~/.claude/skills/ffmpeg-skill`, `../ffmpeg-skill`), otherwise from the plan; `facts_from` says which. A media file that is not there is a `MEDIA_MISSING` warning, not an error. ffmpeg-skill's probe does not report a media start timecode, so that comes from the plan or is marked unknown (this skill does not run ffprobe itself; [the hand-over](docs/handover-media-start-timecode.md)).
+Picture size, rate and length come from ffmpeg-skill `probe` when ffmpeg-skill is found (`--ffmpeg-skill`, `$FFMPEG_SKILL_DIR`, `~/.claude/skills/ffmpeg-skill`, `../ffmpeg-skill`), otherwise from the plan; `facts_from` says which. A media file that is not there is a `MEDIA_MISSING` warning, not an error. The media's start timecode comes from the plan (`assets.<id>.start_timecode`, `drop_frame`) or, when the plan gives none, from ffmpeg-skill 3.0.0+ `probe` (`timecode`: video stream, `tmcd` track or container; drop-frame when the label has `;`), for plans, render projects and agent IRs alike, into `relink.json` (`facts_from.start_timecode`) and the timelines' source timecodes. When both exist and differ the plan wins and `START_TIMECODE_MISMATCH` names it. With ffmpeg-skill 2.x (no `timecode` in its probe) or without ffmpeg-skill it is marked unknown and 00:00:00:00 is assumed (this skill does not run ffprobe itself; [ADR-008](docs/decisions.md)).
 
 ## Round trip
 

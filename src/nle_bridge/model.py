@@ -374,6 +374,53 @@ def asset_start_frames(asset: Dict[str, Any], rate: Fraction) -> int:
     return frames if src_rate == rate else seconds_to_frames(Fraction(frames) / src_rate, rate)
 
 
+PROBE = "ffmpeg-skill probe"
+
+
+def take_probe_timecode(aid: str, asset: Dict[str, Any], probe: Optional[Dict[str, Any]],
+                        rate: Fraction) -> Optional[Dict[str, Any]]:
+    """Fill a normalised asset's start timecode from an ffmpeg-skill probe document (3.0.0+: `timecode: {value,
+    drop_frame, source}`), in place, and record where it came from in `start_timecode_from`. The plan's value wins
+    when both exist; when they differ the result is a START_TIMECODE_MISMATCH warning. A probe without `timecode`
+    (ffmpeg-skill 2.x) or with a null value leaves the asset as it is. A start taken from the probe brings the
+    media's fps and length along when the plan has none (the start is counted in the media's rate, and OTIO needs
+    the length to carry it). Returns the warning, or None."""
+    if asset.get("start_timecode_from"):
+        return None
+    tc = probe.get("timecode") if isinstance(probe, dict) else None
+    value = tc.get("value") if isinstance(tc, dict) else None
+    if not value:
+        if asset.get("start_timecode"):
+            asset["start_timecode_from"] = "plan"
+        return None
+    value = str(value).strip()
+    fps = asset.get("fps") or ((probe.get("video") or {}).get("fps") if isinstance(probe, dict) else None)
+    try:
+        src_rate = parse_rate(fps) if fps else rate
+        drop = bool(tc.get("drop_frame")) and src_rate in DROP_FRAME_RATES
+        frames = timecode_to_frames(value, src_rate, drop)
+    except TimecodeError as e:
+        if asset.get("start_timecode"):
+            asset["start_timecode_from"] = "plan"
+        return warning("START_TIMECODE_UNREADABLE", f"{asset['name']}: ffmpeg-skill probe reads the start timecode "
+                       f"{value!r} ({tc.get('source')}), which is not usable here ({e}); "
+                       + ("the plan's is used" if asset.get("start_timecode") else "it is taken as not known"), item=aid)
+    if asset.get("start_timecode"):
+        asset["start_timecode_from"] = "plan"
+        if asset_start_frames(asset, src_rate) != frames:
+            return warning("START_TIMECODE_MISMATCH", f"{asset['name']}: the plan's start timecode is "
+                           f"{asset['start_timecode']} but ffmpeg-skill probe reads {value} ({tc.get('source')}); "
+                           "the plan's is used", item=aid)
+        return None
+    asset.update(start_timecode=value, drop_frame=drop, start_timecode_from=PROBE, start_timecode_source=tc.get("source"))
+    if not asset.get("fps") and fps:
+        asset["fps"] = float(fps)
+    if asset.get("duration_frames") is None and probe.get("duration"):
+        # OTIO carries the media start in the reference's available_range, which needs the media's length
+        asset["duration_frames"] = seconds_to_frames(Fraction(str(probe["duration"])), rate)
+    return None
+
+
 def clips(tl: Dict[str, Any], kind: Optional[str] = None) -> List[Dict[str, Any]]:
     return [dict(it, track=t["name"], track_kind=t["kind"]) for t in tl["tracks"] if kind in (None, t["kind"])
             for it in t["items"]]

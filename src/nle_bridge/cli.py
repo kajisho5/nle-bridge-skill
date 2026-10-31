@@ -201,6 +201,9 @@ def doctor(explicit: Optional[str] = None) -> Dict[str, Any]:
                      "measured); pass --ffmpeg-skill DIR or set FFMPEG_SKILL_DIR")
     elif eng["missing_tools"]:
         notes.append("ffmpeg-skill lacks: " + ", ".join(eng["missing_tools"]))
+    if eng["found"] and eng.get("probe_timecode") is False:
+        notes.append(f"ffmpeg-skill {eng['version']} probe does not report a media start timecode (3.0.0 and later do): "
+                     "start timecodes come from the plan only")
     if not ot["found"]:
         notes.append("opentimelineio not installed: .otio files are written and read without it, but not re-read by "
                      "it as a check; " + ot["install"])

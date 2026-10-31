@@ -5,7 +5,7 @@ Written on 2026-10-31 from Velisa's ROADMAP ("Premiere Pro and DaVinci Resolve")
 
 ## Where it stands
 
-0.1.0: `export` (OTIO, FCP7 XML, CMX 3600 EDL, SRT sidecar; exact NTSC rates, drop-frame; every loss a named warning, `--strict`), beat-grid markers (bar heads distinct), `conform` (relink manifest, file manifest, deterministic zip, optional media copy; media facts through ffmpeg-skill `probe` when available), `diff` (the editor's returned OTIO / FCP7 XML / EDL against the plan: clips, cut points in frames, markers, offsets from the beat) and `import`, with contract and doctor. Standard library only; opentimelineio is an optional check, and in the tests OTIO's FCP7 / CMX 3600 adapters are a second reader. Not yet imported into a real Premiere or Resolve.
+0.1.0: `export` (OTIO, FCP7 XML, CMX 3600 EDL, SRT sidecar; exact NTSC rates, drop-frame; every loss a named warning, `--strict`), beat-grid markers (bar heads distinct), `conform` (relink manifest, file manifest, deterministic zip, optional media copy; media facts, start timecodes included from ffmpeg-skill 3.0.0, through ffmpeg-skill `probe` when available), `diff` (the editor's returned OTIO / FCP7 XML / EDL against the plan: clips, cut points in frames, markers, offsets from the beat) and `import`, with contract and doctor. Standard library only; opentimelineio is an optional check, and in the tests OTIO's FCP7 / CMX 3600 adapters are a second reader. Not yet imported into a real Premiere or Resolve.
 
 ## What this repository owns
 
@@ -17,7 +17,7 @@ Written on 2026-10-31 from Velisa's ROADMAP ("Premiere Pro and DaVinci Resolve")
 
 ## Wiring
 
-Reads video-production-agent's project IR (`delivery.timelines[]`, captions, the `timeline.export` decision's `not_exported`) and ffmpeg-skill render projects; reads ffmpeg-skill `scenes --beats` grids; uses ffmpeg-skill `probe` (optional, `>=2.0.0 <3.0.0`) for media facts. Its OTIO and EDL follow the shape ffmpeg-skill's `render --export-timeline` writes, and the integration test reads those exports back cut for cut. No agent adapter yet (step 7).
+Reads video-production-agent's project IR (`delivery.timelines[]`, captions, the `timeline.export` decision's `not_exported`) and ffmpeg-skill render projects; reads ffmpeg-skill `scenes --beats` grids; uses ffmpeg-skill `probe` (optional, `>=2.0.0 <4.0.0`) for media facts, and from 3.0.0 for each file's start timecode. Its OTIO and EDL follow the shape ffmpeg-skill's `render --export-timeline` writes, and the integration test reads those exports back cut for cut. No agent adapter yet (step 7).
 
 ## Steps
 
@@ -41,8 +41,9 @@ Reads video-production-agent's project IR (`delivery.timelines[]`, captions, the
   - `--dissolves`; read back from all three formats and compared in `diff`; ffmpeg-skill's own .otio / .edl of a render project with its default fade read back cut for cut
 - [x] **11. Premiere stereo pairs** — fold linked per-channel audio clips (A1 + A2) back into one clip in `diff` ([#4](https://github.com/kajisho5/nle-bridge-skill/pull/4); ADR-007)
   - Exact copies on a later audio track fold (FCP7, OTIO, EDL `AA`); a copy the plan has is compared, an edited copy is reported as added
-- [ ] **12. Media start timecode** — needs ffmpeg-skill `probe` to report the timecode tag (ffmpeg-skill is treated as complete: a hand-over, not a change here)
-  - Checked ([#2](https://github.com/kajisho5/nle-bridge-skill/pull/2); ADR-005): calling ffprobe here is not allowed (this skill's contract, `ecosystem.json` ownership, Velisa's collision note), so the step stays open. Hand-over: [docs/handover-media-start-timecode.md](docs/handover-media-start-timecode.md). Meanwhile the plan states it, and the agent can take it from ingest-skill's inventory
+- [x] **12. Media start timecode** — from ffmpeg-skill `probe`'s `timecode` (added in ffmpeg-skill 3.0.0 on this skill's hand-over) into relink.json and the OTIO / FCP7 XML / EDL source timecodes ([#5](https://github.com/kajisho5/nle-bridge-skill/pull/5); ADR-005, ADR-008)
+  - Checked first ([#2](https://github.com/kajisho5/nle-bridge-skill/pull/2); ADR-005): calling ffprobe here is not allowed, so it was handed over: [docs/handover-media-start-timecode.md](docs/handover-media-start-timecode.md) (done)
+  - Result: the plan's value wins (`START_TIMECODE_MISMATCH` when the probe differs); plans, render projects and agent IRs alike; `version_range` `>=2.0.0 <4.0.0` with the field read when present (2.x: not known, as before). CI's integration job runs against ffmpeg-skill v3.0.0, v2.24.1 and main; `RealProbeTests` uses `ffmpeg -timecode` files (MOV, MP4, `01:00:00;00` at 30000/1001)
 
 ## Boundaries
 
