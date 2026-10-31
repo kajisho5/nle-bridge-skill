@@ -12,6 +12,7 @@ Run `nle-bridge <command> ... --json` (installed by `pip install -e .`; `pip ins
 | Timelines for Premiere / Resolve from a plan | `nle-bridge export plan.json -o out/ --json` (OTIO, FCP7 .xml, .edl, and .srt when the plan has captions) |
 | From the agent's project | `nle-bridge export project.json --subject programme -o out/ --json` |
 | With the music's bars and beats as markers | add `--beats beats.json` (ffmpeg-skill `scenes --beats --json` output, or `{"bpm":120,"beats":[...],"bars":[...]}`); `--beat-markers bars` for bar heads only |
+| With the plan's dissolves as cross dissolves | add `--dissolves` (centred on the cut, in all three formats; a render project's default fade too) |
 | Only some formats | `--formats otio,fcp7` (Premiere: OTIO or FCP7 XML; Resolve: any) |
 | A package for another machine | `nle-bridge conform plan.json -o pkg/ --zip --json` (`--copy-media` to include the media) |
 | What the editor changed | `nle-bridge diff plan.json returned.otio -o diff.json --json` (`.xml` / `.edl` too; an EDL uses the plan's rate) |
@@ -29,9 +30,9 @@ Run `nle-bridge <command> ... --json` (installed by `pip install -e .`; `pip ins
 
 ## Report it honestly
 
-- Interchange is cuts, tracks, markers and (FCP7) levels. Do not say the effects, speed changes, titles or transitions were exported: they are in `warnings`, and a sped-up clip is written at 100 % for its planned length.
+- Interchange is cuts, tracks, markers, (FCP7) levels and, only with `--dissolves`, cross dissolves. Do not say the effects, speed changes, titles or other transitions were exported: they are in `warnings`, and a sped-up clip is written at 100 % for its planned length. A dissolve that could not be written is in `warnings` too.
 - The files were checked with opentimelineio and its adapters, not imported into a real Premiere or Resolve by this skill. Say that if asked whether it "works in Premiere".
-- `diff` is what the returned file says. Effects, transitions and titles the editor added are listed in `not_imported`, not merged into the plan. A clip the editor replaced with different media shows as removed + added.
+- `diff` is what the returned file says. Cross dissolves are compared (`transition`); effects, other transitions and titles the editor added are listed in `not_imported`, not merged into the plan. A clip the editor replaced with different media shows as removed + added.
 - A beat offset is in frames from the nearest beat of the grid given; with an ASSUMED bar the bar number is a count, not a fact about the music.
 - This skill does not control a running NLE, generate music, burn or translate captions, or render.
 

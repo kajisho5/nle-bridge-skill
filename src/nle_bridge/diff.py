@@ -17,8 +17,10 @@ The returned file (OTIO, FCP7 XML or EDL) is read into the same frame-based mode
 5. Beats (when a beat grid is given): for every returned cut point (and the plan's, for comparison) the nearest
    beat and the signed offset in frames (positive: the cut is after the beat), on_beat within the tolerance.
 
-Effects, speed changes, transitions and titles the editor added are listed under `not_imported`: they are in the
-editor's file, but not in the returned plan.
+Cross dissolves are compared (a `transition` change: added, removed, or another length or position); the plan's count
+as exported only with `dissolves` (export --dissolves), otherwise they were hard cuts in the files. Effects, speed
+changes, other transitions and titles the editor added are listed under `not_imported`: they are in the editor's
+file, but not in the returned plan.
 """
 from __future__ import annotations
 
@@ -29,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .beats import nearest
 from .model import base_name, rate_of, start_frames, summary, total_frames
 from .timecode import frames_to_timecode
+from .transitions import resolve as resolve_transitions
 
 DIFF_SCHEMA = "nle-bridge/diff@1"
 _GRID_NAME = re.compile(r"^(Bar \d+|Beat \d+\.\d+)$")
@@ -105,9 +108,11 @@ def _edit_points(items: List[Dict[str, Any]], end: int) -> List[int]:
     return sorted(p for p in pts if 0 < p < end)
 
 
-def _as_exported(tl: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+def _as_exported(tl: Dict[str, Any], dissolves: bool = False) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """The plan as the files carry it: clips only (titles / generators are never written), each at 100 % from
-    its in point for its record length (a speed change is not carried, export.py)."""
+    its in point for its record length (a speed change is not carried, export.py), with the cross dissolves that
+    export --dissolves writes (none without it)."""
+    written = resolve_transitions(tl)[0] if dissolves else {}
     out = dict(tl)
     skipped = []
     tracks = []
@@ -118,18 +123,28 @@ def _as_exported(tl: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, Any
                 skipped.append({"track": t["name"], "plan_id": it["id"], "kind": it["kind"],
                                 "reason": f"a {it['kind']} is not in any interchange file, so it cannot come back"})
                 continue
-            items.append(dict(it, source_out=it["source_in"] + it["record_out"] - it["record_in"]))
+            item = dict(it, source_out=it["source_in"] + it["record_out"] - it["record_in"])
+            item.pop("transition_in", None)
+            if it["id"] in written:
+                w = written[it["id"]]
+                item["transition_in"] = {"type": "dissolve", "frames": w["frames"], "before": w["before"]}
+            items.append(item)
         tracks.append(dict(t, items=items))
     out["tracks"] = tracks
     return out, skipped
 
 
+def _transition(it: Dict[str, Any]) -> Optional[Dict[str, int]]:
+    tr = it.get("transition_in")
+    return {"frames": int(tr["frames"]), "before": int(tr["before"])} if tr else None
+
+
 def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, Any]] = None,
-         beat_tolerance: float = 0.5, returned_path: Optional[str] = None) -> Dict[str, Any]:
+         beat_tolerance: float = 0.5, returned_path: Optional[str] = None, dissolves: bool = False) -> Dict[str, Any]:
     rate = rate_of(orig)
     if rate_of(ret) != rate:
         raise ValueError(f"the returned timeline is {ret['rate']} fps, the plan {orig['rate']} fps")
-    orig, not_compared = _as_exported(orig)
+    orig, not_compared = _as_exported(orig, dissolves)
     fmt = (ret.get("source") or {}).get("format")
     carries_level = fmt not in ("edl", "otio")  # FCP7 has audiolevels; OTIO only our own metadata, EDL nothing
     carries_color = fmt != "fcp7"
@@ -176,6 +191,8 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                 if (r.get("gain_db") is not None or (o.get("gain_db") is not None and carries_level)) and \
                         round(float(r.get("gain_db") or 0.0), 2) != round(float(o.get("gain_db") or 0.0), 2):
                     changes.append("level")
+                if _transition(o) != _transition(r):
+                    changes.append("transition")
                 clips_out.append({"track": track, "plan_id": o["id"], "asset": o.get("asset"), "name": o["name"],
                                   "status": "changed" if changes else "unchanged", "changes": changes,
                                   "delta_frames": d,
@@ -184,7 +201,9 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                                   "returned": {"record_in": rtc(r["record_in"]), "record_out": rtc(r["record_out"]),
                                                "source_in": r["source_in"], "source_out": r["source_out"]},
                                   **({"gain_db": {"plan": o.get("gain_db"), "returned": r.get("gain_db")}}
-                                     if "level" in changes else {})})
+                                     if "level" in changes else {}),
+                                  **({"transition_in": {"plan": _transition(o), "returned": _transition(r)}}
+                                     if "transition" in changes else {})})
             for o in removed:
                 removed_out.append({"track": track, "plan_id": o["id"], "asset": o.get("asset"), "name": o["name"],
                                     "record_in": otc(o["record_in"]), "record_out": otc(o["record_out"]),
@@ -255,6 +274,7 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                         "cuts_moved": sum(1 for c in cuts if c["status"] == "moved"),
                         "cuts_added": sum(1 for c in cuts if c["status"] == "added"),
                         "cuts_removed": sum(1 for c in cuts if c["status"] == "removed"),
+                        "transitions_changed": sum(1 for c in clips_out if "transition" in c["changes"]),
                         "markers_added": len(markers["added"]), "markers_removed": len(markers["removed"]),
                         "markers_changed": len(markers["changed"]),
                         "duration_delta_frames": r_end - o_end,

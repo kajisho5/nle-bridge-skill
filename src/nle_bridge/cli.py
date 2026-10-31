@@ -77,7 +77,8 @@ def _prober(a: argparse.Namespace):
 
 
 def _plan(a: argparse.Namespace, path: str) -> Dict[str, Any]:
-    return load(path, rate=a.fps, subject=getattr(a, "subject", None), prober=_prober(a), drop_frame=_drop(a))
+    return load(path, rate=a.fps, subject=getattr(a, "subject", None), prober=_prober(a), drop_frame=_drop(a),
+                dissolves=getattr(a, "dissolves", False))
 
 
 def _grid(a: argparse.Namespace) -> Optional[Dict[str, Any]]:
@@ -102,9 +103,9 @@ def cmd_export(a: argparse.Namespace) -> int:
     tl = _plan(a, a.plan)
     grid = _grid(a)
     tl = add_beats(tl, grid, a.beat_markers)
-    _strict(render(tl, formats)["warnings"], a)
+    _strict(render(tl, formats, a.dissolves)["warnings"], a)
     inputs = [a.plan] + ([a.beats] if a.beats else [])
-    res = write_files(tl, a.output, formats, name=a.name, overwrite=a.overwrite, inputs=inputs)
+    res = write_files(tl, a.output, formats, name=a.name, overwrite=a.overwrite, inputs=inputs, dissolves=a.dissolves)
     doc = dict(res, ok=True, plan=os.path.abspath(a.plan),
                beats=_grid_summary(grid) if grid else None)
     lines = [f"{f['format']:5} {f['path']}" for f in res["files"]] + _human_warnings(res["warnings"])
@@ -121,14 +122,14 @@ def _grid_summary(grid: Dict[str, Any]) -> Dict[str, Any]:
 def cmd_conform(a: argparse.Namespace) -> int:
     formats = parse_formats(a.formats)
     pr = _prober(a)
-    tl = load(a.plan, rate=a.fps, subject=a.subject, prober=pr, drop_frame=_drop(a))
+    tl = load(a.plan, rate=a.fps, subject=a.subject, prober=pr, drop_frame=_drop(a), dissolves=a.dissolves)
     grid = _grid(a)
     tl = add_beats(tl, grid, a.beat_markers)
-    _strict(render(tl, formats)["warnings"], a)
+    _strict(render(tl, formats, a.dissolves)["warnings"], a)
     inputs = [a.plan] + ([a.beats] if a.beats else []) + [x["path"] for x in tl["assets"].values()]
     res = package(tl, a.output, formats, name=a.name, copy_media=a.copy_media, make_zip=a.zip, overwrite=a.overwrite,
                   probe=pr, hash_media=not a.no_hash, inputs=inputs,
-                  extra={"beats": _grid_summary(grid)} if grid else None)
+                  extra={"beats": _grid_summary(grid)} if grid else None, dissolves=a.dissolves)
     doc = dict(res, ok=True, plan=os.path.abspath(a.plan))
     lines = [f"package {res['package']}"] + ([f"zip     {res['zip']['path']}"] if res["zip"] else []) + \
         [f"media   {m['name']}: {'ok' if m['exists'] else 'MISSING'}" for m in res["relink"]["media"]] + \
@@ -141,7 +142,8 @@ def cmd_diff(a: argparse.Namespace) -> int:
     orig = _plan(a, a.plan)
     ret = load_returned(orig, a.returned)
     grid = _grid(a)
-    res = diff(orig, ret, grid=grid, beat_tolerance=a.beat_tolerance, returned_path=os.path.abspath(a.returned))
+    res = diff(orig, ret, grid=grid, beat_tolerance=a.beat_tolerance, returned_path=os.path.abspath(a.returned),
+               dissolves=a.dissolves)
     inputs = [a.plan, a.returned] + ([a.beats] if a.beats else [])
     if a.output:
         _write_json(a.output, res, a.overwrite, inputs)
@@ -167,7 +169,7 @@ def cmd_diff(a: argparse.Namespace) -> int:
 
 
 def cmd_import(a: argparse.Namespace) -> int:
-    tl = load(a.file, rate=a.fps, subject=a.subject, drop_frame=_drop(a))
+    tl = load(a.file, rate=a.fps, subject=a.subject, drop_frame=_drop(a), dissolves=a.dissolves)
     if a.output:
         _write_json(a.output, tl, a.overwrite, [a.file])
     s = summary(tl)
@@ -228,6 +230,9 @@ def parser() -> argparse.ArgumentParser:
         sp.add_argument("--beat-set", choices=BEAT_SETS, default="supported",
                         help="ffmpeg-skill grids: supported beats only (default) or the whole regular grid")
         sp.add_argument("--beat-offset", type=float, default=0.0, help="timeline seconds where the music starts (default 0)")
+        sp.add_argument("--dissolves", action="store_true",
+                        help="write the plan's transitions as cross dissolves centred on the cut (default: hard cuts, "
+                             "each named); diff: the plan was exported with --dissolves")
         sp.add_argument("--json", action="store_true", help="print one JSON document")
 
     def out_args(sp: argparse.ArgumentParser) -> None:
@@ -279,6 +284,7 @@ def parser() -> argparse.ArgumentParser:
     g = i.add_mutually_exclusive_group()
     g.add_argument("--drop-frame", action="store_true")
     g.add_argument("--non-drop-frame", action="store_true")
+    i.add_argument("--dissolves", action="store_true", help="a render project's transition as cross dissolves")
     i.add_argument("--overwrite", action="store_true")
     i.add_argument("--json", action="store_true")
     i.set_defaults(func=cmd_import)

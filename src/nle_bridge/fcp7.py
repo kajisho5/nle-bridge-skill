@@ -6,6 +6,12 @@ media, both in frames at the sequence rate); the file each clipitem plays (pathu
 known); audio levels as the standard `audiolevels` filter (linear gain, 1.0 = 0 dB); sequence markers (name,
 comment, in, out). The sequence rate is timebase + ntsc, its timecode states DF / NDF.
 
+With `--dissolves`, a cross dissolve is a transitionitem between the two clipitems (start / end on the sequence,
+alignment center, start or end; "Cross Dissolve" on video, "Cross Fade (+3dB)" on audio). As FCP7 writes it, the
+clipitems next to it have start / end -1 and their in / out include the media the dissolve uses beyond the cut. The
+reader takes the cut from the transition (center: the odd frame before the cut, the rule this skill and ffmpeg-skill
+write) and gives the incoming clip its `transition_in`.
+
 What it does not: marker colours (FCP7 had none; xmeml has no colour element), so bar heads and beats are told
 apart by name (`Bar N`, `Beat N.b`) and comment, and a `MARKER_COLOR_NOT_EXPORTED` warning says so.
 """
@@ -21,6 +27,7 @@ from xml.sax.saxutils import escape
 from .model import (DEFAULT_MARKER_COLOR, NleBridgeError, asset_start_frames, base_name, path_to_url, rate_of,
                     start_frames, total_frames, url_to_path, warning)
 from .timecode import frames_to_timecode, is_ntsc, nominal, rate_str
+from .transitions import AUDIO_NAME, VIDEO_NAME, is_dissolve, tails
 
 _GRID_NAME = re.compile(r"^(Bar \d+|Beat \d+\.\d+)$")
 
@@ -51,10 +58,47 @@ def _level_xml(gain_db: float, ind: str) -> str:
             f"{ind}      <value>{linear:.6f}</value>\n{ind}    </parameter>\n{ind}  </effect>\n{ind}</filter>")
 
 
-def write(tl: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
+def _transition_xml(it: Dict[str, Any], dz: Dict[str, Any], kind: str, rate: Fraction, ind: str,
+                    warns: List[Dict[str, Any]]) -> str:
+    d, before, after = dz["frames"], dz["before"], dz["after"]
+    if before == 0:
+        align = "start"
+    elif after == 0:
+        align = "end"
+    else:
+        align = "center"
+        if before != d - d // 2:
+            warns.append(warning("TRANSITION_OFF_CENTRE", f"{it['id']}: the dissolve has {before} of its {d} frames "
+                                 "before the cut; FCP7 XML can only say center, so it is written centred on the cut "
+                                 "(the cut itself stays put)", item=it["id"], fmt="fcp7"))
+            before = d - d // 2
+    name = VIDEO_NAME if kind == "video" else AUDIO_NAME
+    effectid = "Cross Dissolve" if kind == "video" else "KGAudioTransCrossFade3dB"
+    return "\n".join([
+        f"{ind}<transitionitem>", f"{ind}  <start>{it['record_in'] - before}</start>",
+        f"{ind}  <end>{it['record_in'] - before + d}</end>", f"{ind}  <alignment>{align}</alignment>",
+        _rate_xml(rate, ind + "  "), f"{ind}  <effect>", f"{ind}    <name>{name}</name>",
+        f"{ind}    <effectid>{effectid}</effectid>",
+        f"{ind}    <effectcategory>{'Dissolve' if kind == 'video' else 'Crossfade'}</effectcategory>",
+        f"{ind}    <effecttype>transition</effecttype>", f"{ind}    <mediatype>{kind}</mediatype>", f"{ind}  </effect>",
+        f"{ind}</transitionitem>"])
+
+
+def _cut(start: int, end: int, alignment: str) -> int:
+    """The cut inside a transitionitem: center puts the odd frame before the cut (ffmpeg-skill's split)."""
+    if alignment.startswith("start"):
+        return start
+    if alignment.startswith("end"):
+        return end
+    return end - (end - start) // 2
+
+
+def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
     rate = rate_of(tl)
     drop = tl["drop_frame"]
     warns: List[Dict[str, Any]] = []
+    dissolves = dissolves or {}
+    leaving = tails(dissolves)
     files_written: Dict[str, str] = {}
     file_ids: Dict[str, str] = {}
     for aid in tl["assets"]:
@@ -87,11 +131,17 @@ def write(tl: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
     def clipitem(it: Dict[str, Any], n: int, kind: str, ind: str, track_index: int) -> str:
         a = tl["assets"][it["asset"]]
         dur = a.get("duration_frames") or it["source_out"]
+        head, tail = dissolves.get(it["id"]), leaving.get(it["id"])
+        # next to a transition FCP7 writes start / end -1, and in / out take in the media the dissolve uses
+        start = -1 if head else it["record_in"]
+        end = -1 if tail else it["record_out"]
+        s_in = it["source_in"] - (head["before"] if head else 0)
+        s_out = it["source_in"] + it["record_out"] - it["record_in"] + (tail["after"] if tail else 0)
         lines = [f'{ind}<clipitem id="clipitem-{n}">', f"{ind}  <masterclipid>masterclip-{file_ids[it['asset']][5:]}</masterclipid>",
                  f"{ind}  <name>{_q(it['name'])}</name>", f"{ind}  <enabled>{'TRUE' if it.get('enabled', True) else 'FALSE'}</enabled>",
                  f"{ind}  <duration>{dur}</duration>", _rate_xml(rate, ind + "  "),
-                 f"{ind}  <start>{it['record_in']}</start>", f"{ind}  <end>{it['record_out']}</end>",
-                 f"{ind}  <in>{it['source_in']}</in>", f"{ind}  <out>{it['source_in'] + it['record_out'] - it['record_in']}</out>",
+                 f"{ind}  <start>{start}</start>", f"{ind}  <end>{end}</end>",
+                 f"{ind}  <in>{s_in}</in>", f"{ind}  <out>{s_out}</out>",
                  file_xml(it["asset"], ind + "  ")]
         if kind == "audio":
             lines.append(f"{ind}  <sourcetrack>\n{ind}    <mediatype>audio</mediatype>\n"
@@ -117,6 +167,8 @@ def write(tl: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
             if it["kind"] != "clip":
                 continue
             n += 1
+            if it["id"] in dissolves:
+                body.append(_transition_xml(it, dissolves[it["id"]], t["kind"], rate, ind + "  ", warns))
             body.append(clipitem(it, n, t["kind"], ind + "  ", min(audio_index, 2) if t["kind"] == "audio" else 1))
         block = f"{ind}<track>\n" + ("\n".join(body) + "\n" if body else "") + \
             f"{ind}  <enabled>TRUE</enabled>\n{ind}  <locked>FALSE</locked>\n{ind}</track>"
@@ -221,10 +273,27 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
         for ti, t in enumerate(media.findall(f"{kind}/track") if media is not None else []):
             items = []
             last_end = 0
-            for el in t:
+            els = [el for el in t if el.tag in ("clipitem", "transitionitem", "generatoritem")]
+            trans: Dict[int, Dict[str, Any]] = {}  # index in els -> the transition's start, end, cut
+            for k, el in enumerate(els):
+                if el.tag != "transitionitem":
+                    continue
+                name = _txt(el, "effect/name") or _txt(el, "effect/effectid") or ""
+                try:
+                    ts, te = int(float(_txt(el, "start") or "")), int(float(_txt(el, "end") or ""))
+                except ValueError:
+                    ts = te = -1
+                between = 0 < k < len(els) - 1 and els[k - 1].tag == "clipitem" and els[k + 1].tag == "clipitem"
+                if 0 <= ts < te and between:
+                    cut = _cut(ts, te, (_txt(el, "alignment") or "center").lower())
+                    trans[k] = {"start": ts, "end": te, "cut": cut, "dissolve": is_dissolve(name) or
+                                any(w in name.lower() for w in ("dissolve", "cross fade", "crossfade")), "name": name}
+                    if trans[k]["dissolve"]:
+                        continue
+                warns.append(warning("TRANSITION_NOT_IMPORTED", f"{kind} track {ti + 1}: transition "
+                                     f"{name} is read as a hard cut", fmt="fcp7"))
+            for k, el in enumerate(els):
                 if el.tag == "transitionitem":
-                    warns.append(warning("TRANSITION_NOT_IMPORTED", f"{kind} track {ti + 1}: transition "
-                                         f"{_txt(el, 'effect/name') or ''} is read as a hard cut", fmt="fcp7"))
                     continue
                 if el.tag == "generatoritem":
                     warns.append(warning("TITLE_NOT_IMPORTED", f"{kind} track {ti + 1}: generator / title "
@@ -239,9 +308,17 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
                     continue
                 s, e = int(float(_txt(el, "start") or -1)), int(float(_txt(el, "end") or -1))
                 cin, cout = int(float(_txt(el, "in") or 0)), int(float(_txt(el, "out") or 0))
-                if s < 0:  # next to a transition: FCP7 writes -1 and the cut is in the transition's middle
+                head, tail = trans.get(k - 1), trans.get(k + 1)
+                handles = 0
+                if s < 0 and head:  # next to a transition: FCP7 writes -1, in includes the media before the cut
+                    s = head["cut"]
+                    cin += head["cut"] - head["start"]
+                elif s < 0:
                     s = last_end
-                if e < 0:
+                if e < 0 and tail:  # and out includes the media after it
+                    e = tail["cut"]
+                    handles = tail["end"] - tail["cut"]
+                elif e < 0:
                     e = s + (cout - cin)
                 last_end = e
                 comment = _txt(el, "comments/mastercomment1") or ""
@@ -250,7 +327,10 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
                                       "name": _txt(el, "name") or "", "source_in": cin, "source_out": cin + (e - s),
                                       "record_in": s, "record_out": e,
                                       "enabled": (_txt(el, "enabled") or "TRUE").upper() != "FALSE"}
-                if e - s != cout - cin:
+                if head and head["dissolve"] and head["end"] > head["start"]:
+                    it["transition_in"] = {"type": "dissolve", "frames": head["end"] - head["start"],
+                                           "before": head["cut"] - head["start"]}
+                if e - s != cout - cin - handles:
                     warns.append(warning("SPEED_NOT_IMPORTED", f"{it['name']}: media length {cout - cin} != sequence "
                                          f"length {e - s} frames (a speed change) is not taken into the plan",
                                          item=iid, fmt="fcp7"))

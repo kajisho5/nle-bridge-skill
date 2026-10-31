@@ -5,6 +5,9 @@ levels; effects, speed changes, titles / generators and transitions do not survi
 Pro and DaVinci Resolve"), so each one is named in `warnings` with its item id. Format-specific losses (a second
 picture track in an EDL, marker colours in FCP7, levels in OTIO / EDL) are added by the writers.
 
+Transitions: written as hard cuts (`TRANSITION_NOT_EXPORTED`) unless `--dissolves` asks for cross dissolves centred
+on the cut (transitions.py, ADR-006); then only the ones that cannot be written are named.
+
 Speed: the clip is written at 100 % from its source in point for its planned length on the timeline, so the cut
 points stay where the plan put them; the warning says the speed change is the editor's to redo.
 """
@@ -14,7 +17,7 @@ import hashlib
 import os
 from typing import Any, Dict, List, Optional
 
-from . import edl, fcp7, otio_io, srt
+from . import edl, fcp7, otio_io, srt, transitions
 from .beats import grid_markers
 from .model import NleBridgeError, rate_of, summary, total_frames, warning
 from .timecode import parse_rate
@@ -37,8 +40,9 @@ def parse_formats(spec: Optional[str]) -> List[str]:
     return out
 
 
-def content_warnings(tl: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """What no interchange format carries, per item."""
+def content_warnings(tl: Dict[str, Any], dissolves: bool = False) -> List[Dict[str, Any]]:
+    """What no interchange format carries, per item (transitions: only without `dissolves`; with it,
+    transitions.resolve() names the ones it cannot write)."""
     out: List[Dict[str, Any]] = []
     r = rate_of(tl)
     for t in tl["tracks"]:
@@ -58,11 +62,10 @@ def content_warnings(tl: Dict[str, Any]) -> List[Dict[str, Any]]:
                 out.append(warning("TITLE_NOT_EXPORTED", f"{iid}: {it['kind']}{text} on {t['name']} is left as a gap "
                                    f"({it['record_out'] - it['record_in']} frames); titles do not survive interchange",
                                    item=iid))
-            if it.get("transition_in"):
+            if it.get("transition_in") and not dissolves:
                 tr = it["transition_in"]
-                name = tr.get("type", "transition") if isinstance(tr, dict) else str(tr)
-                out.append(warning("TRANSITION_NOT_EXPORTED", f"{iid}: {name} into this clip is written as a hard cut",
-                                   item=iid))
+                out.append(warning("TRANSITION_NOT_EXPORTED", f"{iid}: {tr['type']} ({tr['frames']} frames) into this "
+                                   "clip is written as a hard cut (--dissolves writes cross dissolves)", item=iid))
             a = tl["assets"].get(it.get("asset") or "")
             if a and a.get("fps") and a.get("has_video", True) and t["kind"] == "video" and parse_rate(a["fps"]) != r:
                 out.append(warning("RATE_MISMATCH", f"{iid}: {a['name']} is {a['fps']:g} fps on a {float(r):.3f} fps "
@@ -89,16 +92,21 @@ def sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def render(tl: Dict[str, Any], formats: List[str]) -> Dict[str, Any]:
-    """-> {"texts": {fmt: text}, "warnings": [...]} without touching the disk."""
+def render(tl: Dict[str, Any], formats: List[str], dissolves: bool = False) -> Dict[str, Any]:
+    """-> {"texts": {fmt: text}, "warnings": [...]} without touching the disk. `dissolves` writes the plan's
+    transitions as cross dissolves centred on the cut where they can be."""
     texts: Dict[str, str] = {}
-    warns = list(tl.get("warnings") or []) + content_warnings(tl)
+    warns = list(tl.get("warnings") or []) + content_warnings(tl, dissolves)
+    dz: Dict[str, Dict[str, Any]] = {}
+    if dissolves:
+        dz, dw = transitions.resolve(tl)
+        warns += dw
     for f in formats:
         if f == "srt":
             if tl.get("captions"):
                 texts["srt"] = srt.write(tl["captions"])
             continue
-        text, w = WRITERS[f](tl)
+        text, w = WRITERS[f](tl, dz)
         texts[f] = text
         warns += w
     if tl.get("captions") and "srt" not in formats:
@@ -118,13 +126,13 @@ def _dedupe(warns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def write_files(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optional[str] = None,
-                overwrite: bool = False, inputs: Optional[List[str]] = None) -> Dict[str, Any]:
+                overwrite: bool = False, inputs: Optional[List[str]] = None, dissolves: bool = False) -> Dict[str, Any]:
     """Write `<out_dir>/<name>.<ext>` for each format; refuses to replace a file without `overwrite` and never
     writes over an input. Returns the files (path, sha256, independent re-read check) and the warnings."""
     stem = name or tl["name"]
     if not stem or any(c in stem for c in "/\\") or stem in (".", ".."):
         raise NleBridgeError("INVALID_ARGUMENT", f"--name {stem!r} must be a plain file name")
-    res = render(tl, formats)
+    res = render(tl, formats, dissolves)
     paths = {f: os.path.join(out_dir, stem + FORMATS[f]) for f in res["texts"]}
     ins = {os.path.realpath(p) for p in (inputs or [])}
     for f, p in paths.items():

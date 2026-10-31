@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Cross dissolves (roadmap step 10, ADR-006): `--dissolves` on `export`, `conform`, `diff` and `import` writes each plan `transition_in` as a cross dissolve centred on the cut, in OTIO (Transition), FCP7 XML (transitionitem) and CMX 3600 (`D` event), the shape ffmpeg-skill writes; the cut points stay put. Dissolves that cannot be written are named (`TRANSITION_NOT_EXPORTED`, `TRANSITION_AS_DISSOLVE`, `TRANSITION_OFF_CENTRE`). The readers take dissolves back from all three formats and `diff` reports a `transition` change; a render project's fade is laid out as ffmpeg-skill lays it; `relink.json` names the handles. Without the flag nothing changes.
 - Live control by reuse (roadmap step 9, ADR-004): `docs/live-control.md` pins davinci-resolve-mcp 4.17.0 and premiere-pro-mcp 1.27.0 (both MIT), with their install commands, a chat-app config and the switches that keep script tools, telemetry and self-update off. No server code is used or copied.
 - Media start timecode (roadmap step 12, ADR-005): not read with ffprobe here; a hand-over to ffmpeg-skill `probe` (`docs/handover-media-start-timecode.md`). The step stays open.
 

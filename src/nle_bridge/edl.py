@@ -9,6 +9,10 @@
 - Markers are `* LOC: <record tc> <COLOUR> <name>` lines (the form Resolve reads and writes), so bar heads (RED)
   and beats (CYAN) keep their colours.
 - Audio levels are not part of CMX 3600 (`LEVEL_NOT_EXPORTED`).
+- With `--dissolves`, a cross dissolve is the standard pair ffmpeg-skill also writes: a zero-length cut on the
+  outgoing source where its event ends, then a `D nnn` event bringing the incoming clip in from where the dissolve
+  starts, with `* FROM CLIP NAME` / `* TO CLIP NAME`. An EDL has no cut point inside a dissolve, so the reader puts
+  the cut at the centre (the odd frame before it), the rule this skill and ffmpeg-skill write.
 """
 from __future__ import annotations
 
@@ -19,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .model import (DEFAULT_MARKER_COLOR, MARKER_COLORS, NleBridgeError, asset_start_frames, base_name, rate_of,
                     start_frames, url_to_path, warning)
 from .timecode import TimecodeError, frames_to_timecode, parse_rate, rate_str, timecode_to_frames
+from .transitions import tails
 
 _TCRE = re.compile(r"^\d\d[:;.]\d\d[:;.]\d\d[:;.]\d\d$")
 _TRANS = re.compile(r"^(C|D|W\d{3}|K|KB|KO)$")
@@ -27,30 +32,34 @@ _AUDIO_CHANNELS = ("A", "A2", "A3", "A4")
 _GRID_NAME = re.compile(r"^(Bar \d+|Beat \d+\.\d+)$")
 
 
-def _event(line: str) -> Optional[Tuple[str, str, str, str, str, str, str, str]]:
-    """'NNN  REEL  CHAN  TRANS [DUR]  SRC-IN SRC-OUT REC-IN REC-OUT' -> its fields, read from both ends so a reel
-    name with spaces (some writers keep the file name) still parses."""
+def _event(line: str) -> Optional[Tuple[str, str, str, str, int, str, str, str, str]]:
+    """'NNN  REEL  CHAN  TRANS [DUR]  SRC-IN SRC-OUT REC-IN REC-OUT' -> (num, reel, chan, trans, dur, times...),
+    read from both ends so a reel name with spaces (some writers keep the file name) still parses."""
     tok = line.split()
     if len(tok) < 8 or not tok[0].isdigit() or not all(_TCRE.match(t) for t in tok[-4:]):
         return None
     head = tok[1:-4]
+    dur = 0
     if head and head[-1].isdigit() and len(head) >= 4:  # a transition duration
+        dur = int(head[-1])
         head = head[:-1]
     if len(head) < 3 or not _TRANS.match(head[-1].upper()):
         return None
-    return (tok[0], " ".join(head[:-2]), head[-2], head[-1].upper(), *tok[-4:])
+    return (tok[0], " ".join(head[:-2]), head[-2], head[-1].upper(), dur, *tok[-4:])
 
 
-def write(tl: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
+def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
     rate = rate_of(tl)
     drop = tl["drop_frame"]
     warns: List[Dict[str, Any]] = []
     start = start_frames(tl)
+    dissolves = dissolves or {}
+    leaving = tails(dissolves)
 
     def tc(frames: int) -> str:
         return frames_to_timecode(frames, rate, drop)
 
-    events: List[Tuple[int, str, Dict[str, Any]]] = []
+    events: List[Tuple[int, str, List[str]]] = []  # (record start, channel, lines after the event number)
     v_seen = a_seen = 0
     for t in tl["tracks"]:
         if t["kind"] == "video":
@@ -70,26 +79,42 @@ def write(tl: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
                                          "tracks; this one is not in the EDL", fmt="edl"))
                 continue
             chan = _AUDIO_CHANNELS[a_seen - 1]
+        src_end: Dict[str, int] = {}  # item id -> where its event's source ends
+        names: Dict[str, str] = {}
         for it in t["items"]:
             if it["kind"] != "clip":
                 continue
             if it.get("gain_db") is not None:
                 warns.append(warning("LEVEL_NOT_EXPORTED", f"{it['id']}: level {it['gain_db']:+g} dB is not part of "
                                      "CMX 3600", item=it["id"], fmt="edl"))
-            events.append((it["record_in"], chan, it))
+            a = tl["assets"][it["asset"]]
+            head, tail = dissolves.get(it["id"]), leaving.get(it["id"])
+            # an event runs from where its dissolve starts to where the next one starts
+            rec_in = it["record_in"] - (head["before"] if head else 0)
+            rec_out = it["record_out"] - (tail["before"] if tail else 0)
+            s_in = asset_start_frames(a, rate) + it["source_in"] - (head["before"] if head else 0)
+            s_out = s_in + rec_out - rec_in
+            src_end[it["id"]] = s_out
+            names[it["id"]] = it["name"]
+            body = []
+            if head:
+                cut = tc(src_end[head["from"]])
+                body.append(f"AX       {chan:<5} C        {cut} {cut} {tc(start + rec_in)} {tc(start + rec_in)}")
+                body.append(f"AX       {chan:<5} D    {head['frames']:03d} {tc(s_in)} {tc(s_out)} "
+                            f"{tc(start + rec_in)} {tc(start + rec_out)}")
+                body.append(f"* FROM CLIP NAME: {names[head['from']]}")
+                body.append(f"* TO CLIP NAME: {it['name']}")
+            else:
+                body.append(f"AX       {chan:<5} C        {tc(s_in)} {tc(s_out)} {tc(start + rec_in)} {tc(start + rec_out)}")
+                body.append(f"* FROM CLIP NAME: {it['name']}")
+            body.append(f"* SOURCE FILE: {a['path']}")
+            body.append(f"* NLE-BRIDGE ID: {it['id']}")
+            events.append((rec_in, chan, body))
     order = {c: i for i, c in enumerate(("V",) + _AUDIO_CHANNELS)}
     events.sort(key=lambda e: (e[0], order[e[1]]))
     lines = [f"TITLE: {tl['name']}", f"FCM: {'DROP FRAME' if drop else 'NON-DROP FRAME'}", ""]
-    for n, (_, chan, it) in enumerate(events, 1):
-        a = tl["assets"][it["asset"]]
-        base = asset_start_frames(a, rate)
-        length = it["record_out"] - it["record_in"]
-        s_in = base + it["source_in"]
-        lines.append(f"{n:03d}  AX       {chan:<5} C        {tc(s_in)} {tc(s_in + length)} "
-                     f"{tc(start + it['record_in'])} {tc(start + it['record_out'])}")
-        lines.append(f"* FROM CLIP NAME: {it['name']}")
-        lines.append(f"* SOURCE FILE: {a['path']}")
-        lines.append(f"* NLE-BRIDGE ID: {it['id']}")
+    for n, (_, chan, body) in enumerate(events, 1):
+        lines += [f"{n:03d}  {x}" if x.startswith("AX") else x for x in body]
         lines.append("")
     for m in tl["markers"]:
         name = m["name"] + (f" | {m['comment']}" if m.get("comment") and m["kind"] == "marker" else "")
@@ -127,12 +152,10 @@ def read(text: str, *, rate: Any = None, start_timecode: Optional[str] = None, n
             continue
         ev = _event(line.strip())
         if ev:
-            num, reel, chan, trans, si, so, ri, ro = ev
-            if trans != "C":
-                warns.append(warning("TRANSITION_NOT_IMPORTED", f"event {num}: transition {trans} is read as a cut",
-                                     fmt="edl"))
-            cur = {"num": num, "reel": reel, "chan": chan.upper(), "si": si, "so": so, "ri": ri, "ro": ro,
-                   "name": None, "file": None, "id": None}
+            num, reel, chan, trans, dur, si, so, ri, ro = ev
+            cur = {"num": num, "reel": reel, "chan": chan.upper(), "trans": trans, "dur": dur, "si": si, "so": so,
+                   "ri": ri, "ro": ro, "name": None, "file": None, "id": None, "to_name": None, "to_file": None,
+                   "from_file": None}
             events.append(cur)
             continue
         lm = _LOC.match(line.strip())
@@ -145,11 +168,11 @@ def read(text: str, *, rate: Any = None, start_timecode: Optional[str] = None, n
             continue
         if cur is not None and line.startswith("*"):
             body = line[1:].strip()
-            for key, field in (("FROM CLIP NAME:", "name"), ("SOURCE FILE:", "file"), ("FROM CLIP:", "file"),
-                               ("NLE-BRIDGE ID:", "id")):
+            for key, field in (("FROM CLIP NAME:", "name"), ("TO CLIP NAME:", "to_name"), ("SOURCE FILE:", "file"),
+                               ("FROM CLIP:", "from_file"), ("TO CLIP:", "to_file"), ("NLE-BRIDGE ID:", "id")):
                 if body.upper().startswith(key):
                     value = body[len(key):].strip()
-                    cur[field] = url_to_path(value) if field == "file" else value
+                    cur[field] = url_to_path(value) if field.endswith("file") else value
                     break
     if drop and r not in (Fraction(30000, 1001), Fraction(60000, 1001)):
         raise NleBridgeError("INVALID_TIMELINE", f"the EDL says DROP FRAME but the rate is {float(r):.3f} fps")
@@ -162,6 +185,15 @@ def read(text: str, *, rate: Any = None, start_timecode: Optional[str] = None, n
 
     if not events:
         raise NleBridgeError("INVALID_TIMELINE", "no CMX 3600 events in the EDL")
+    events = [e for e in events if fr(e["ro"]) > fr(e["ri"])]  # a dissolve's zero-length outgoing line
+    if not events:
+        raise NleBridgeError("INVALID_TIMELINE", "no CMX 3600 events with a length in the EDL")
+    for e in events:
+        if e["trans"] == "D":  # the incoming clip: TO CLIP NAME / TO CLIP name it when given
+            e["name"] = e["to_name"] or e["name"]
+            e["file"] = e["to_file"] or e["file"]
+        else:
+            e["file"] = e["file"] or e["from_file"]
     first = min(fr(e["ri"]) for e in events)
     start = timecode_to_frames(start_timecode, r, drop) if start_timecode else None
     if start is None or first < start:  # no start given, or the file's record times begin before it
@@ -191,9 +223,23 @@ def read(text: str, *, rate: Any = None, start_timecode: Optional[str] = None, n
             iid = e["id"] or f"{t['name']}-{e['num']}"
             if any(x["id"] == iid for x in t["items"]) or any(iid == x["id"] for tt in tracks.values() for x in tt["items"]):
                 iid = f"{iid}@{t['name']}"
-            t["items"].append({"id": iid, "kind": "clip", "asset": aid, "name": e["name"] or assets[aid]["name"],
-                               "source_in": si - base, "source_out": si - base + (ro - ri), "record_in": ri,
-                               "record_out": ro})
+            item = {"id": iid, "kind": "clip", "asset": aid, "name": e["name"] or assets[aid]["name"],
+                    "source_in": si - base, "source_out": si - base + (ro - ri), "record_in": ri, "record_out": ro}
+            prev = t["items"][-1] if t["items"] else None
+            if e["trans"] == "D" and e["dur"] > 0 and prev is not None and prev["record_out"] == ri \
+                    and e["dur"] <= ro - ri:
+                # the dissolve starts at the event's record in; the cut is taken at its centre (ADR-006)
+                d = e["dur"]
+                before = d - d // 2
+                prev["record_out"] += before
+                prev["source_out"] += before
+                item.update(record_in=ri + before, source_in=si - base + before,
+                            transition_in={"type": "dissolve", "frames": d, "before": before})
+            elif e["trans"] != "C":
+                warns.append(warning("TRANSITION_NOT_IMPORTED", f"event {e['num']}: transition {e['trans']} is read as "
+                                     "a cut" + (" (no clip on the track ends where it starts)" if e["trans"] == "D" else ""),
+                                     fmt="edl"))
+            t["items"].append(item)
             if so - si != ro - ri:
                 warns.append(warning("SPEED_NOT_IMPORTED", f"event {e['num']}: source and record lengths differ",
                                      item=iid, fmt="edl"))

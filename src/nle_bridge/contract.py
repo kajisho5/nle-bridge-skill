@@ -18,16 +18,19 @@ CONTRACT_VERSION = "1.0"
 # Warning codes that mean content of the plan is not (or only partly) in a written file; --strict refuses them.
 LOSS_CODES = ("SPEED_NOT_EXPORTED", "EFFECT_NOT_EXPORTED", "TITLE_NOT_EXPORTED", "TRANSITION_NOT_EXPORTED",
               "TRACK_NOT_EXPORTED", "LEVEL_NOT_EXPORTED", "LEVEL_METADATA_ONLY", "MARKER_COLOR_NOT_EXPORTED",
-              "MARKER_DURATION_NOT_EXPORTED", "CAPTIONS_NOT_EXPORTED", "NOT_IN_TIMELINE")
+              "MARKER_DURATION_NOT_EXPORTED", "CAPTIONS_NOT_EXPORTED", "NOT_IN_TIMELINE",
+              "TRANSITION_AS_DISSOLVE", "TRANSITION_OFF_CENTRE")
 
-_PLAN_ARGS = ["[--subject <asset>]", "[--fps <rate>]", "[--drop-frame | --non-drop-frame]", "[--beats <grid.json>]",
+_PLAN_ARGS = ["[--subject <asset>]", "[--fps <rate>]", "[--drop-frame | --non-drop-frame]", "[--dissolves]",
+              "[--beats <grid.json>]",
               f"[--beats-per-bar {DEFAULT_BEATS_PER_BAR}]", "[--beat-set supported|grid]", "[--beat-offset <s>]"]
 
 TOOLS = [
     {"tool_id": "nle-bridge/export", "role": "execution", "writes_media": False, "mutates_input": False, "deterministic": True,
      "description": "A plan (nle-bridge/timeline@1, the agent's project IR, an ffmpeg-skill render project, or an OTIO / "
                     "FCP7 XML / EDL) as editor timelines: OTIO, FCP7 XML (Premiere), CMX 3600 EDL, and an SRT sidecar for "
-                    "captions. A beat grid adds bar / beat markers. What a format cannot carry is a warning, never dropped",
+                    "captions. A beat grid adds bar / beat markers; --dissolves writes cross dissolves centred on the cut. What a "
+                    "format cannot carry is a warning, never dropped",
      "argv": ["export", "<plan>", "-o <dir>", "[--formats otio,fcp7,edl,srt]", "[--name <stem>]", *_PLAN_ARGS,
               "[--beat-markers all|bars|none]", "[--strict]", "[--overwrite]", "--json"]},
     {"tool_id": "nle-bridge/conform", "role": "execution", "writes_media": False, "mutates_input": False, "deterministic": True,
@@ -38,14 +41,15 @@ TOOLS = [
               "[--zip]", "[--no-hash]", "[--no-probe]", "[--ffmpeg-skill <dir>]", "[--strict]", "[--overwrite]", "--json"]},
     {"tool_id": "nle-bridge/diff", "role": "measurement", "writes_media": False, "mutates_input": False, "deterministic": True,
      "description": "Round trip: the timeline an NLE gives back (OTIO, FCP7 XML or EDL) against the plan: clips changed "
-                    "(moved, trimmed, slipped, level), added (split_from on a razor cut) and removed, cut points moved in "
+                    "(moved, trimmed, slipped, level, transition), added (split_from on a razor cut) and removed, cut points moved in "
                     "frames, markers added / removed / changed, and with a beat grid how many frames each cut sits off "
                     "the nearest beat. Optionally the returned timeline as a new plan version",
      "argv": ["diff", "<plan>", "<returned.otio|.xml|.edl>", "[-o <diff.json>]", "[--timeline-out <plan.json>]",
               *_PLAN_ARGS, "[--beat-tolerance 0.5]", "[--overwrite]", "--json"]},
     {"tool_id": "nle-bridge/import", "role": "measurement", "writes_media": False, "mutates_input": False, "deterministic": True,
      "description": "Any accepted input (plan, project IR, render project, OTIO, FCP7 XML, EDL) as nle-bridge/timeline@1",
-     "argv": ["import", "<file>", "[-o <timeline.json>]", "[--subject <asset>]", "[--fps <rate>]", "[--overwrite]", "--json"]},
+     "argv": ["import", "<file>", "[-o <timeline.json>]", "[--subject <asset>]", "[--fps <rate>]", "[--dissolves]",
+              "[--overwrite]", "--json"]},
 ]
 
 ERRORS = {
@@ -94,7 +98,8 @@ def contract() -> Dict[str, Any]:
                           "for": ["re-reading each written .otio as an independent check (export / conform verification)"]}],
         "not_provided": ["live control of Premiere Pro or DaVinci Resolve (import, render queue, markers in a running NLE: "
                          "reuse the community MCP servers, Velisa ROADMAP)",
-                         "effects, speed changes, titles and transitions in the interchange files (named as warnings)",
+                         "effects, speed changes, titles, and transitions other than a cross dissolve, in the interchange files "
+                         "(named as warnings); cross dissolves only with --dissolves",
                          "FCPXML (Final Cut Pro X): ffmpeg-skill render --export-timeline writes it",
                          "AAF", "rendering, transcoding or proxies (ffmpeg-skill)",
                          "generating or analysing music (a beat grid is read, never made: ffmpeg-skill scenes --beats "
@@ -103,15 +108,16 @@ def contract() -> Dict[str, Any]:
                          "running ffmpeg or ffprobe directly (only through ffmpeg-skill)", "network access of any kind"],
         "tools": TOOLS,
         "formats": {"otio": {"extension": FORMATS["otio"], "schema": "OpenTimelineIO JSON (Timeline.1, Clip.2, Marker.2)",
-                             "carries": ["cuts", "video and audio tracks", "gaps", "markers with colour", "media start timecode"],
+                             "carries": ["cuts", "video and audio tracks", "gaps", "markers with colour", "media start timecode",
+                                         "cross dissolves (--dissolves)"],
                              "not_carried": ["audio levels (metadata only)"]},
                     "fcp7": {"extension": FORMATS["fcp7"], "schema": "xmeml version 4",
                              "carries": ["cuts", "video and audio tracks", "markers", "audio levels (audiolevels filter)",
-                                         "media start timecode", "DF / NDF"],
-                             "not_carried": ["marker colours"]},
+                                         "media start timecode", "DF / NDF", "cross dissolves (--dissolves)"],
+                             "not_carried": ["marker colours", "a dissolve off the cut's centre"]},
                     "edl": {"extension": FORMATS["edl"], "schema": "CMX 3600",
                             "carries": ["cuts on one picture track and up to 4 audio tracks", "markers with colour (* LOC)",
-                                        "DF / NDF"],
+                                        "DF / NDF", "cross dissolves (--dissolves; read back centred on the cut)"],
                             "not_carried": ["more than one video track", "audio levels", "marker durations",
                                             "the frame rate (the reader needs it)"]},
                     "srt": {"extension": FORMATS["srt"], "carries": ["captions in programme time"]}},
