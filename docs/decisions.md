@@ -40,7 +40,7 @@ Velisa's roadmap gives this repository the timeline hand-over to Premiere Pro an
 ### Follow-ups
 
 - **Real NLE import.** Import the files into Premiere 25.x and Resolve Studio once one is available, and record what each keeps (marker colours from the EDL, levels from FCP7, OTIO metadata).
-- **Dissolves.** OTIO, FCP7 XML and EDL can all carry a cross dissolve; written as an option later, centred on the cut as ffmpeg-skill does.
+- **Dissolves.** OTIO, FCP7 XML and EDL can all carry a cross dissolve; written as an option later, centred on the cut as ffmpeg-skill does. Done: `--dissolves`, ADR-006.
 - **Media start timecode.** Needs ffmpeg-skill `probe` to report the `tmcd` / `timecode` tag; ffmpeg-skill is treated as complete, so it is noted, not changed.
 
 ## ADR-002 Beat grid: markers from a grid that is read, never made
@@ -84,7 +84,7 @@ Generating music, measuring beats (ffmpeg-skill `scenes --beats`), and moving cu
 - **Changes.** Per pair: `delta_frames` of the four ends; `trimmed` (source ends moved), `slipped` (source moved, record kept), `moved` (record moved, source kept), `retimed`, `level` (FCP7; OTIO / EDL do not carry levels, so a missing level there is not a change), `enabled` / `disabled`. Leftovers are `removed` / `added`; an added clip overlapping a plan clip of the same media is `split_from` it (a razor cut).
 - **Cut points.** The edit points of the first video track, except the first and last frame. A plan cut follows its clip pair to the returned position. `delta_frames` is the move; unpaired cuts are `added` / `removed`.
 - **Markers.** Paired by name (nearest), then by position (renamed). Colour is not compared for FCP7 (it has none). Beat-grid markers are counted only.
-- **Not imported.** Transitions, speed changes, effects, titles and nested sequences in the returned file are listed in `not_imported`. They are not merged into the plan: they are the editor's, and the plan cannot express them.
+- **Not imported.** Transitions other than a cross dissolve (ADR-006 reads those), speed changes, effects, titles and nested sequences in the returned file are listed in `not_imported`. They are not merged into the plan: they are the editor's, and the plan cannot express them.
 
 ### Follow-ups
 
@@ -142,3 +142,30 @@ ffmpeg-skill `probe` does not report a media file's start timecode (it keeps six
 - **Not allowed: no ffprobe call here.** Step 12 stays open.
 - **Hand-over written:** [docs/handover-media-start-timecode.md](handover-media-start-timecode.md) states the field ffmpeg-skill `probe` would add, its tests, and the small change here once it exists.
 - **Meanwhile** the plan carries it (`assets.*.start_timecode`, `drop_frame`); the agent can copy it from ingest-skill's inventory. Without it the media starts at 00:00:00:00 and the relink manifest says the start timecode is not known (unchanged from ADR-001).
+
+## ADR-006 Cross dissolves centred on the cut, as an option
+
+Checked 2026-10-31 against ffmpeg-skill 2.24 `scripts/_common/timeline.py` (read only; its `to_otio` / `to_edl` and the layout of `transition`), opentimelineio 0.18.1 with otio-fcp-adapter 1.0.0 and otio-cmx3600-adapter 1.0.0 (how the reference reads and writes transitions), and ADR-001's follow-up.
+
+### Requirements
+
+- Roadmap step 10: cross dissolves in OTIO, FCP7 XML and EDL, centred on the cut, as ffmpeg-skill does.
+- ffmpeg-skill's own export and this skill's must agree frame for frame on the same render project, now with its default 0.5 s fade too.
+- The cut points must not move: captions, markers and the beat analysis hang on them (the reason speed changes are written at 100 %).
+- Opt-in: nothing changes for a plan exported as before, and real-NLE behaviour is still unverified (step 8).
+
+### Decision
+
+- **`--dissolves`** on `export`, `conform`, `diff` and `import`. Without it every transition is a hard cut named by `TRANSITION_NOT_EXPORTED`, as in 0.1.0.
+- **Model.** An item's `transition_in` is normalised to `{type, frames, before}`: a type name or an object with `duration` (seconds, default 0.5 like render.py), `frames` or `duration_frames`; `before` is how many frames lie before the cut, by default `d - d // 2`. That is ffmpeg-skill's split (the incoming clip gives `d - d // 2` frames of head, the outgoing `d // 2` of tail), so an odd dissolve has its extra frame before the cut. A transition of type `none` or 0 frames is no transition.
+- **The cut stays.** Record ranges and visible source ranges are the plan's; a dissolve uses `before` frames of the incoming clip's media before its in point and `after = d - before` frames of the outgoing clip's media after its out point. `transitions.resolve()` writes one only when a clip ends exactly where the incoming one starts, both are long enough (also against a neighbouring dissolve), and the media has the frames (the outgoing clip's checked when its length is known). Otherwise a hard cut with `TRANSITION_NOT_EXPORTED` naming the reason. A type that is not a dissolve (`wipe`, an xfade name) is written as a cross dissolve with `TRANSITION_AS_DISSOLVE`, as ffmpeg-skill notes for its non-fade xfades.
+- **OTIO.** `Transition.1`, `SMPTE_Dissolve`, `in_offset` = before, `out_offset` = after, between the two clips, whose source ranges stay their visible parts: ffmpeg-skill's shape.
+- **FCP7 XML.** A `transitionitem` (start / end on the sequence, `alignment` center, or start / end when one side is 0; "Cross Dissolve" / effectid `Cross Dissolve` on video, "Cross Fade (+3dB)" / `KGAudioTransCrossFade3dB` on audio). The adjacent clipitems have `start` / `end` -1 and their `in` / `out` include the dissolve's media, as FCP7 and OTIO's FCP7 adapter write it. `center` cannot say where an odd dissolve's cut is: the reader takes `end - (end - start) // 2` (the extra frame before the cut, matching what is written); OTIO's adapter truncates `(start + end) / 2`, one frame earlier, so the reference cross-check uses an even length. A dissolve neither centred nor at an edge (only from an imported timeline) is written centred (`TRANSITION_OFF_CENTRE`).
+- **EDL.** The standard pair ffmpeg-skill writes: a zero-length `C` line on the outgoing source where its event ends, then `D nnn` bringing the incoming clip in from where the dissolve starts, with `* FROM CLIP NAME` / `* TO CLIP NAME`, `* SOURCE FILE` and the plan id. Each event runs from where its dissolve starts to where the next one starts. CMX 3600 has no cut point inside a dissolve, so the reader puts the cut at the centre (`before = d - d // 2`); OTIO's CMX reader puts it at the start of the D event instead (in_offset 0), which the cross-check states.
+- **Reading back.** All three readers take a dissolve between two clips into the incoming clip's `transition_in` (a wipe or a dissolve from black still is `TRANSITION_NOT_IMPORTED`, with the cut where the transition says). `diff` compares `{frames, before}` per clip pair as a `transition` change and counts `transitions_changed`; the plan's dissolves count as exported only with `--dissolves`.
+- **Render projects.** With `--dissolves` the project's transition is laid out exactly as ffmpeg-skill's export lays it: seconds to frames with the same rounding, each clip trimmed by its dissolves' head / tail, so the timeline is as long as the render. The integration test compares ffmpeg-skill's own .otio and .edl of a three-clip project with its default fade against this skill's, clip for clip and cut for cut.
+- **Conform.** Each used range in `relink.json` names `handle_before` / `handle_after` when a dissolve needs media beyond it, so the media is not trimmed too tight.
+
+### Not decided here
+
+What Premiere and Resolve make of each form on import, odd-length centring included (step 8).

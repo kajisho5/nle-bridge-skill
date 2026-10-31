@@ -592,6 +592,140 @@ class DiffTests(TmpCase):
         self.assertEqual(doc["error"]["code"], "INVALID_ARGUMENT")
 
 
+# ------------------------------------------------------------------------------------------------ dissolves
+def dissolve_plan(rate="25", drop=False, frames=None):
+    """sample_plan with a 1 s (or `frames`) dissolve from c1 into c2 on V1 and A1; c3 follows a gap, so its
+    dissolve cannot be written."""
+    p = sample_plan(rate, drop)
+    tr = {"type": "dissolve", "frames": frames} if frames else {"type": "dissolve", "duration": 1}
+    p["tracks"][0]["items"][1]["transition_in"] = dict(tr)
+    p["tracks"][1]["items"][1]["transition_in"] = dict(tr)
+    p["tracks"][0]["items"][2]["transition_in"] = "dissolve"
+    return p
+
+
+class DissolveTests(TmpCase):
+    def test_round_trip_in_every_format_at_every_rate(self):
+        for label, (rate, drop) in RATES.items():
+            with self.subTest(rate=label):
+                plan_path, files, doc = self.export(dissolve_plan(rate, drop), "otio,fcp7,edl,srt", "--dissolves")
+                orig = load(plan_path)
+                want = orig["tracks"][0]["items"][1]["transition_in"]
+                self.assertEqual(want["frames"], seconds_to_frames(1, parse_rate(rate)))
+                self.assertEqual(want["before"], want["frames"] - want["frames"] // 2)
+                # c3 sits after a gap: named, written as a hard cut
+                self.assertEqual([(w["code"], w["item"]) for w in doc["warnings"] if w["code"].startswith("TRANSITION")],
+                                 [("TRANSITION_NOT_EXPORTED", "c3")])
+                for fmt in ("otio", "fcp7", "edl"):
+                    ret = load_returned(orig, files[fmt])
+                    d = diff(orig, ret, dissolves=True)
+                    self.assertTrue(d["summary"]["identical"], (label, fmt, d["clips"], d["added"], d["removed"]))
+                    for t in (0, 1):
+                        self.assertEqual(ret["tracks"][t]["items"][1].get("transition_in"),
+                                         {"type": "dissolve", "frames": want["frames"], "before": want["before"]}, (label, fmt))
+                        self.assertNotIn("transition_in", ret["tracks"][t]["items"][0])
+                    self.assertFalse([w for w in ret["warnings"] if w["code"] == "TRANSITION_NOT_IMPORTED"], (label, fmt))
+
+    def test_what_each_format_says(self):
+        _, files, _ = self.export(dissolve_plan("25"), "otio,fcp7,edl", "--dissolves")
+        # 25 frames: 13 before the cut at 100 (01:00:04:00), 12 after; c1's media starts at 10:00:00:00
+        doc = json.loads(Path(files["otio"]).read_text(encoding="utf-8"))
+        v = doc["tracks"]["children"][0]["children"]
+        self.assertEqual([c["OTIO_SCHEMA"] for c in v], ["Clip.2", "Transition.1", "Clip.2", "Gap.1", "Clip.2"])
+        self.assertEqual((v[1]["transition_type"], v[1]["in_offset"]["value"], v[1]["out_offset"]["value"]),
+                         ("SMPTE_Dissolve", 13.0, 12.0))
+        self.assertEqual(v[2]["source_range"]["start_time"]["value"], 50.0)  # the visible part, as ffmpeg-skill writes it
+        self.assertEqual(doc["tracks"]["children"][1]["children"][1]["name"], "Cross Fade (+3dB)")
+        xml = Path(files["fcp7"]).read_text(encoding="utf-8")
+        self.assertIn("<transitionitem>\n            <start>87</start>\n            <end>112</end>\n"
+                      "            <alignment>center</alignment>", xml)
+        self.assertIn("<effectid>KGAudioTransCrossFade3dB</effectid>", xml)
+        # c1 ends at -1 with 12 frames of tail in its out; c2 starts at -1 with 13 frames of head in its in
+        self.assertIn("<start>0</start>\n            <end>-1</end>\n            <in>25</in>\n            <out>137</out>", xml)
+        self.assertIn("<start>-1</start>\n            <end>162</end>\n            <in>37</in>\n            <out>112</out>", xml)
+        edl = Path(files["edl"]).read_text(encoding="utf-8")
+        self.assertIn("001  AX       V     C        10:00:01:00 10:00:04:12 01:00:00:00 01:00:03:12\n", edl)
+        self.assertIn("004  AX       V     C        10:00:04:12 10:00:04:12 01:00:03:12 01:00:03:12\n"
+                      "004  AX       V     D    025 00:00:01:12 00:00:04:12 01:00:03:12 01:00:06:12\n"
+                      "* FROM CLIP NAME: cam a.mov\n* TO CLIP NAME: cam_b.mov\n", edl)
+
+    def test_dissolves_that_cannot_be_written_are_named(self):
+        p = dissolve_plan("25")
+        v = p["tracks"][0]["items"]
+        v[1]["in"], v[1]["out"] = 0, 2.5  # no media before c2's in point
+        p["tracks"][1]["items"][1]["transition_in"] = {"type": "wipe", "duration": 0.4}
+        p["tracks"][1]["items"][1].update({"in": 2, "out": 4.5})
+        tl = normalise(p)
+        res = render(tl, ["otio", "fcp7", "edl"], dissolves=True)
+        got = {(w["code"], w["item"]) for w in res["warnings"] if w["code"].startswith("TRANSITION")}
+        self.assertEqual(got, {("TRANSITION_NOT_EXPORTED", "c2"), ("TRANSITION_NOT_EXPORTED", "c3"),
+                               ("TRANSITION_AS_DISSOLVE", "c2a")})
+        msg = next(w["message"] for w in res["warnings"] if w["item"] == "c2" and w["code"] == "TRANSITION_NOT_EXPORTED")
+        self.assertIn("13 frame(s) of media before its in point", msg)
+        self.assertNotIn("Transition.1", "".join(t for f, t in res["texts"].items() if f == "otio").split('"V1"')[0])
+        p["tracks"][0]["items"][1].update({"in": 2, "out": 4.5})
+        p["tracks"][0]["items"][1]["transition_in"] = {"type": "dissolve", "duration": 6}  # 75 + 75 frames, c2 is 62
+        res = render(normalise(p), ["otio"], dissolves=True)
+        self.assertIn("do not fit", next(w["message"] for w in res["warnings"] if w["item"] == "c2"))
+        # without --dissolves every transition is a hard cut, each named; --strict refuses
+        res = render(normalise(dissolve_plan("25")), ["otio", "fcp7", "edl"])
+        self.assertEqual(sorted(w["item"] for w in res["warnings"] if w["code"] == "TRANSITION_NOT_EXPORTED"),
+                         ["c2", "c2a", "c3"])
+        self.assertNotIn("Transition.1", res["texts"]["otio"])
+        self.assertNotIn("transitionitem", res["texts"]["fcp7"])
+        code, d, _ = run_cli("export", self.write("p.json", dissolve_plan("25")), "-o", os.path.join(self.tmp, "s"),
+                             "--dissolves", "--strict", "--json")
+        self.assertEqual((code, d["error"]["code"]), (5, "CONTENT_NOT_EXPORTED"))  # c3 still cannot be written
+
+    def test_diff_reports_dissolve_changes(self):
+        plan_path, files, _ = self.export(dissolve_plan("25"), "otio", "--dissolves")
+
+        def edit(doc):  # the editor makes the V1 dissolve 40 frames (20 + 20) and removes the A1 one
+            v = doc["tracks"]["children"][0]["children"]
+            v[1]["in_offset"]["value"] = 20.0
+            v[1]["out_offset"]["value"] = 20.0
+            del doc["tracks"]["children"][1]["children"][1]
+        doc = json.loads(Path(files["otio"]).read_text(encoding="utf-8"))
+        edit(doc)
+        ret = self.write("returned.otio", json.dumps(doc))
+        code, d, raw = run_cli("diff", plan_path, ret, "--dissolves", "--json")
+        self.assertEqual(code, 0, raw)
+        got = {c["plan_id"]: (c["changes"], c.get("transition_in")) for c in d["clips"] if c["changes"]}
+        self.assertEqual(got, {"c2": (["transition"], {"plan": {"frames": 25, "before": 13},
+                                                       "returned": {"frames": 40, "before": 20}}),
+                               "c2a": (["transition"], {"plan": {"frames": 25, "before": 13}, "returned": None})})
+        self.assertEqual((d["summary"]["transitions_changed"], d["summary"]["cuts_moved"]), (2, 0))
+        # a plan exported without --dissolves had hard cuts: the editor's dissolves are what changed
+        code, d, raw = run_cli("diff", plan_path, files["otio"], "--json")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(sorted(c["plan_id"] for c in d["clips"] if c["changes"] == ["transition"]), ["c2", "c2a"])
+
+    def test_conform_names_the_handles(self):
+        tl = normalise(dissolve_plan("25"))
+        res = package(tl, os.path.join(self.tmp, "pkg"), ["otio"], dissolves=True, hash_media=False)
+        uses = {u["item"]: u for m in res["relink"]["media"] for u in m["used"]}
+        self.assertEqual((uses["c1"]["handle_before"], uses["c1"]["handle_after"]), (0, 12))
+        self.assertEqual((uses["c2"]["handle_before"], uses["c2"]["handle_after"]), (13, 0))
+        self.assertNotIn("handle_before", uses["c3"])
+
+    def test_render_project_dissolves_are_laid_out_as_ffmpeg_skill_does(self):
+        proj = {"clips": [{"src": "a.mp4", "in": 1, "out": 3.5}, {"src": "b.mp4", "in": 0.4, "out": 2}],
+                "frame": {"fps": 25}}
+        path = self.write("project.json", proj)
+        tl = load(path)  # without --dissolves: hard cuts, the render's length plus the dissolve, named
+        self.assertEqual([(i["record_in"], i["record_out"]) for i in tl["tracks"][0]["items"]], [(0, 63), (63, 103)])
+        self.assertIn("TRANSITION_NOT_EXPORTED", [w["code"] for w in tl["warnings"]])
+        tl = load(path, dissolves=True)  # 0.5 s = 12 frames (12.5, ties to even): 6 of tail, 6 of head; 3.5 s = 88
+        for t in tl["tracks"]:
+            a, b = t["items"]
+            self.assertEqual((a["source_in"], a["source_out"], a["record_in"], a["record_out"]), (25, 82, 0, 57))
+            self.assertEqual((b["source_in"], b["source_out"], b["record_in"], b["record_out"]), (16, 50, 57, 91))
+            self.assertEqual(b["transition_in"], {"type": "dissolve", "frames": 12, "before": 6})
+        self.assertNotIn("TRANSITION_NOT_EXPORTED", [w["code"] for w in tl["warnings"]])
+        res = render(tl, ["otio", "fcp7", "edl"], dissolves=True)
+        self.assertFalse([w for w in res["warnings"] if w["code"].startswith("TRANSITION")])
+
+
 # ------------------------------------------------------------------------------------------------ inputs
 def agent_ir(media_dir):
     return {"schema_version": "1.0", "project": {"id": "talk"},
@@ -689,8 +823,11 @@ class InputTests(TmpCase):
         self.assertEqual(got["assets"][items[0]["asset"]]["path"], "/Volumes/A/cam a.mov")
         self.assertEqual(got["assets"][items[0]["asset"]]["start_timecode"], "10:00:00:00")
         self.assertEqual([(m["name"], m["at_frame"], m["color"]) for m in got["markers"]], [("on clip", 24, "PURPLE")])
+        # the SMPTE dissolve between the two clips is read as the second clip's transition_in (6 frames each side)
+        self.assertNotIn("transition_in", items[0])
+        self.assertEqual(items[1]["transition_in"], {"type": "dissolve", "frames": 12, "before": 6})
         codes = sorted({w["code"] for w in got["warnings"]})
-        self.assertEqual(codes, ["SPEED_NOT_IMPORTED", "TITLE_NOT_IMPORTED", "TRANSITION_NOT_IMPORTED"])
+        self.assertEqual(codes, ["SPEED_NOT_IMPORTED", "TITLE_NOT_IMPORTED"])
 
     def test_refusals(self):
         self.assertEqual(run_cli("import", os.path.join(self.tmp, "none.json"), "--json")[0], 2)
@@ -881,6 +1018,41 @@ class OtioCrossReadTests(TmpCase):
                          [(i["record_in"], i["record_out"]) for i in orig["tracks"][0]["items"]])
 
 
+    def test_reference_reader_sees_the_dissolves(self):
+        import opentimelineio as otio
+        plan_path, files, _ = self.export(dissolve_plan("25", frames=12), "otio,fcp7,edl", "--dissolves")
+        for fmt in ("otio", "fcp7", "edl"):
+            t = otio.adapters.read_from_file(files[fmt], **({"rate": 25} if fmt == "edl" else {}))
+            v1 = [tr for tr in t.tracks if tr.kind == otio.schema.TrackKind.Video][0]
+            trans = [c for c in v1 if isinstance(c, otio.schema.Transition)]
+            self.assertEqual(len(trans), 1, fmt)
+            offsets = (int(trans[0].in_offset.to_frames()), int(trans[0].out_offset.to_frames()))
+            starts = [int(round(v1.range_of_child(c).start_time.to_frames())) for c in v1 if isinstance(c, otio.schema.Clip)]
+            if fmt == "edl":
+                # OTIO's CMX 3600 reader puts the cut where the D event starts: 6 frames before ours
+                self.assertEqual((offsets, starts), ((0, 12), [0, 94, 200]), fmt)
+            else:
+                self.assertEqual((offsets, starts), ((6, 6), [0, 100, 200]), fmt)
+            self.assertEqual(trans[0].transition_type, otio.schema.TransitionTypes.SMPTE_Dissolve)
+
+    def test_reference_writes_dissolves_that_this_skill_reads(self):
+        import opentimelineio as otio
+        plan_path, files, _ = self.export(dissolve_plan("25", frames=12), "otio", "--dissolves")
+        orig = load(plan_path)
+        t = otio.adapters.read_from_file(files["otio"])
+        xml = os.path.join(self.tmp, "ref.xml")
+        otio.adapters.write_to_file(t, xml, adapter_name="fcp_xml")
+        d = diff(orig, load(xml), dissolves=True)
+        self.assertEqual([(c["plan_id"], c["changes"]) for c in d["clips"] if c["changes"]], [("c1a", ["level"])])
+        self.assertEqual(d["summary"]["cuts_moved"] + d["summary"]["clips_added"] + d["summary"]["clips_removed"], 0)
+        v = otio.schema.Timeline(name="v1only", tracks=[t.tracks[0].clone()])
+        edl_path = os.path.join(self.tmp, "ref.edl")
+        otio.adapters.write_to_file(v, edl_path, adapter_name="cmx_3600")
+        got = load_returned(orig, edl_path)["tracks"][0]["items"]  # the plan's media start timecodes
+        self.assertEqual([(i["record_in"], i["record_out"], i["source_in"]) for i in got],
+                         [(i["record_in"], i["record_out"], i["source_in"]) for i in orig["tracks"][0]["items"]])
+        self.assertEqual(got[1]["transition_in"], {"type": "dissolve", "frames": 12, "before": 6})
+
 # ------------------------------------------------------------------------------------------------ registry
 @unittest.skipUnless(VELISA_DIR and (VELISA_DIR / "registry" / "conformance.py").is_file(),
                      "needs a Velisa checkout (VELISA_DIR, AI_VIDEO_PRODUCTION_OS_DIR or ../Velisa)")
@@ -967,6 +1139,43 @@ class RealProbeTests(TmpCase):
                 self.assertEqual([m["name"] for m in theirs["markers"]], ["One", "Two"])
                 # ffmpeg-skill colours chapter markers RED; time and name are the same
                 self.assertEqual([c["changes"] for c in d["markers"]["changed"]], [["color"], ["color"]])
+
+
+    def test_dissolves_match_ffmpeg_skill_render_export_timeline(self):
+        """render.py's default 0.5 s fade through ffmpeg-skill `render --export-timeline` and through this skill with
+        --dissolves: the same visible ranges, the same cuts, the same 12-frame dissolve (6 before, 6 after)."""
+        media = os.path.join(self.tmp, "m")
+        os.makedirs(media)
+        clips = []
+        for n in ("a", "b", "c"):
+            p = os.path.join(media, f"{n}.mp4")
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=6",
+                            "-f", "lavfi", "-i", "sine=frequency=330:duration=6", "-shortest", "-c:v", "libx264",
+                            "-pix_fmt", "yuv420p", "-c:a", "aac", p], check=True)
+            clips.append(p)
+        proj = {"clips": [{"src": clips[0], "in": 1, "out": 3.5}, {"src": clips[1], "in": 0.4, "out": 2},
+                          {"src": clips[2], "in": 2, "out": 4.2}],
+                "output": os.path.join(self.tmp, "final.mp4")}  # no transition: render.py's 0.5 s fade
+        proj_path = self.write("project.json", proj)
+        ours = load(proj_path, prober=engine.prober(engine.locate(str(FFMPEG_SKILL_DIR))), dissolves=True)
+        self.assertEqual([i.get("transition_in") for i in ours["tracks"][0]["items"]],
+                         [None, {"type": "dissolve", "frames": 12, "before": 6}, {"type": "dissolve", "frames": 12, "before": 6}])
+        for ext in ("otio", "edl"):
+            out = os.path.join(self.tmp, f"ffs.{ext}")
+            r = subprocess.run([sys.executable, str(FFMPEG_SKILL_DIR / "scripts" / "render.py"), proj_path,
+                                "--export-timeline", out, "--json"], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+            theirs = load_returned(ours, out)
+            d = diff(ours, theirs, dissolves=True)
+            v = [c for c in d["clips"] if c["track"] == "V1"]
+            self.assertEqual([c["status"] for c in v], ["unchanged"] * 3, (ext, v, d["added"], d["removed"]))
+            self.assertEqual((d["summary"]["cuts_moved"], d["summary"]["duration_delta_frames"]), (0, 0), ext)
+            self.assertFalse([w for w in theirs["warnings"] if w["code"] == "TRANSITION_NOT_IMPORTED"], ext)
+            # and what this skill writes from the same project carries the same dissolves
+            files = self.export(proj_path, "otio,fcp7,edl", "--dissolves", "--ffmpeg-skill", str(FFMPEG_SKILL_DIR))[1]
+            for fmt in ("otio", "fcp7", "edl"):
+                d2 = diff(ours, load_returned(ours, files[fmt]), dissolves=True)
+                self.assertTrue(d2["summary"]["identical"], (ext, fmt, d2["clips"]))
 
 
 if __name__ == "__main__":

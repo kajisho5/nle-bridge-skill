@@ -10,6 +10,9 @@ Resolve read. The opentimelineio package is not needed to write or read it; when
 - Markers sit on the timeline's stack with OTIO's colour names; their kind (marker / bar / beat) and every item's
   plan id ride in `metadata.nle_bridge`, which round trip uses as a hint when an NLE keeps it.
 - Audio levels have no OTIO schema: a clip's gain_db is metadata only (`LEVEL_METADATA_ONLY` warning).
+- With `--dissolves`, a cross dissolve is a Transition.1 (SMPTE_Dissolve) between the two clips: in_offset is the
+  part before the cut, out_offset the part after, the clips' source ranges stay their visible parts (as ffmpeg-skill
+  writes it). The reader takes an SMPTE_Dissolve between two clips back as the incoming clip's `transition_in`.
 """
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .model import (DEFAULT_MARKER_COLOR, MARKER_COLORS, NleBridgeError, asset_start_frames, base_name, path_to_url,
                     rate_of, start_frames, url_to_path, warning)
 from .timecode import frames_to_timecode, parse_rate, rate_str, seconds_to_frames
+from .transitions import AUDIO_NAME, VIDEO_NAME
 
 META = "nle_bridge"
 
@@ -38,9 +42,10 @@ def _gap(dur: int, rate: Fraction) -> Dict[str, Any]:
             "effects": [], "markers": [], "enabled": True}
 
 
-def write(tl: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
-    """-> (OTIO JSON text, warnings)."""
+def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
+    """-> (OTIO JSON text, warnings). `dissolves`: transitions.resolve()'s map, written as Transition.1 items."""
     rate = rate_of(tl)
+    dissolves = dissolves or {}
     warns: List[Dict[str, Any]] = []
     tracks = []
     for t in tl["tracks"]:
@@ -60,6 +65,12 @@ def write(tl: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
                 children.append(_gap(length, rate))
                 pos = it["record_out"]
                 continue
+            dz = dissolves.get(it["id"])
+            if dz:
+                children.append({"OTIO_SCHEMA": "Transition.1", "metadata": {META: {"item": it["id"]}},
+                                 "name": VIDEO_NAME if t["kind"] == "video" else AUDIO_NAME,
+                                 "transition_type": "SMPTE_Dissolve",
+                                 "in_offset": _rt(dz["before"], rate), "out_offset": _rt(dz["after"], rate)})
             a = tl["assets"][it["asset"]]
             base = asset_start_frames(a, rate)
             media_ref: Dict[str, Any] = {"OTIO_SCHEMA": "ExternalReference.1", "metadata": {META: {"asset": it["asset"]}},
@@ -152,12 +163,21 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
         kind = "audio" if str(t.get("kind", "Video")).lower() == "audio" else "video"
         items = []
         pos = 0
-        for ci, c in enumerate(t.get("children") or []):
+        pending: Optional[Dict[str, Any]] = None  # an SMPTE_Dissolve waiting for the clip after it
+        children = t.get("children") or []
+        for ci, c in enumerate(children):
             sch = _schema(c)
             if sch == "Transition":
-                warns.append(warning("TRANSITION_NOT_IMPORTED", f"track {t.get('name')}: transition "
-                                     f"{c.get('transition_type') or c.get('name')} is read as a hard cut", fmt="otio"))
+                nxt = children[ci + 1] if ci + 1 < len(children) else None
+                prev_clip = bool(items) and items[-1]["record_out"] == pos and ci > 0 and _schema(children[ci - 1]) == "Clip"
+                if c.get("transition_type") == "SMPTE_Dissolve" and prev_clip and _schema(nxt) == "Clip":
+                    before = _frames(c.get("in_offset"), r)
+                    pending = {"type": "dissolve", "frames": before + _frames(c.get("out_offset"), r), "before": before}
+                else:
+                    warns.append(warning("TRANSITION_NOT_IMPORTED", f"track {t.get('name')}: transition "
+                                         f"{c.get('transition_type') or c.get('name')} is read as a hard cut", fmt="otio"))
                 continue
+            tr_in, pending = pending, None
             dur = _frames((c.get("source_range") or {}).get("duration"), r) if c.get("source_range") else 0
             if sch == "Gap":
                 pos += dur
@@ -182,6 +202,10 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
             if _schema(ref) == "GeneratorReference":
                 warns.append(warning("TITLE_NOT_IMPORTED", f"{c.get('name')}: generator / title "
                                      f"({ref.get('generator_kind')}) is read as a gap", item=iid, fmt="otio"))
+                if tr_in:
+                    warns.append(warning("TRANSITION_NOT_IMPORTED", f"track {t.get('name')}: the dissolve into "
+                                         f"{c.get('name')} is not taken into the plan (a generator is read as a gap)",
+                                         fmt="otio"))
                 pos += dur
                 continue
             url = str(ref.get("target_url") or "")
@@ -203,7 +227,8 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
             items.append({"id": iid, "kind": "clip", "asset": aid, "name": str(c.get("name") or ""),
                           "source_in": start, "source_out": start + dur, "record_in": pos, "record_out": pos + dur,
                           "enabled": bool(c.get("enabled", True)),
-                          **({"gain_db": cmeta["gain_db"]} if cmeta.get("gain_db") is not None else {})})
+                          **({"gain_db": cmeta["gain_db"]} if cmeta.get("gain_db") is not None else {}),
+                          **({"transition_in": tr_in} if tr_in and tr_in["frames"] > 0 else {})})
             for m in c.get("markers") or []:
                 mr = m.get("marked_range") or {}
                 at = pos + _frames(mr.get("start_time"), r) - _frames(c["source_range"]["start_time"], r)

@@ -8,7 +8,10 @@
   (`params.not_exported`) becomes a warning.
 - ffmpeg-skill's render project (`clips[{src, in, out, speed}]`, `frame`, `chapters`, `audio.music`, ...), the
   same document `render --export-timeline` reads. Chapters become markers, the music bed an audio track; the
-  project keys a timeline cannot carry are warnings (the list follows ffmpeg-skill's own `not_exported`).
+  project keys a timeline cannot carry are warnings (the list follows ffmpeg-skill's own `not_exported`). Its
+  transition (render.py's default: a 0.5 s fade) is a hard cut, or with `dissolves` a cross dissolve laid out as
+  ffmpeg-skill lays it: each clip gives d - d // 2 frames of head and d // 2 of tail to its dissolves, so the
+  timeline is as long as the render and the cuts land where ffmpeg-skill's own export puts them.
 - An editor timeline: `.otio`, FCP7 `.xml`, CMX 3600 `.edl` (the rate comes from `rate` / the plan).
 """
 from __future__ import annotations
@@ -21,7 +24,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import edl, fcp7, otio_io, srt
 from .model import NleBridgeError, asset_start_frames, base_name, normalise, rate_of, resolve_path, warning
-from .timecode import TimecodeError, parse_rate, rate_str
+from .timecode import TimecodeError, parse_rate, rate_str, seconds_to_frames
 
 Prober = Callable[[str], Optional[Dict[str, Any]]]
 
@@ -171,7 +174,8 @@ def _align_audio(tl: Dict[str, Any]) -> None:
                           source_out=v["source_out"])
 
 
-def from_render(doc: Dict[str, Any], *, rate: Any, base_dir: Optional[str], prober: Optional[Prober]) -> Dict[str, Any]:
+def from_render(doc: Dict[str, Any], *, rate: Any, base_dir: Optional[str], prober: Optional[Prober],
+                dissolves: bool = False) -> Dict[str, Any]:
     clips = doc.get("clips") or []
     if not clips:
         raise NleBridgeError("INVALID_PLAN", "project.clips is empty")
@@ -219,10 +223,14 @@ def from_render(doc: Dict[str, Any], *, rate: Any, base_dir: Optional[str], prob
             assets["music"] = dict(info, path=mpath, has_video=False, has_audio=True)
             tracks.append({"kind": "audio", "name": "A2", "items": [{"id": "music", "asset": "music", "in": 0, "at": 0}]})
     trans = doc.get("transition") or {}
-    if len(clips) > 1 and str(trans.get("type", "fade")) != "none":
-        warns.append(warning("TRANSITION_NOT_EXPORTED", f"the project's {trans.get('type', 'fade')} transition "
-                             f"({trans.get('duration', 0.5)} s; render.py's default when none is set) is exported as a "
-                             "hard cut, so this timeline is longer than the render"))
+    t_type = str(trans.get("type", "fade"))
+    if len(clips) > 1 and t_type != "none":
+        if dissolves:
+            _render_dissolves(v_items, a_items, assets, t_type, trans.get("duration", 0.5), parse_rate(r))
+        else:
+            warns.append(warning("TRANSITION_NOT_EXPORTED", f"the project's {t_type} transition "
+                                 f"({trans.get('duration', 0.5)} s; render.py's default when none is set) is exported as "
+                                 "a hard cut, so this timeline is longer than the render (--dissolves writes it)"))
     for key, text in _RENDER_NOT_EXPORTED.items():
         if doc.get(key):
             warns.append(warning("NOT_IN_TIMELINE", text))
@@ -260,6 +268,48 @@ def from_render(doc: Dict[str, Any], *, rate: Any, base_dir: Optional[str], prob
     return tl
 
 
+def _render_dissolves(v_items: List[Dict[str, Any]], a_items: List[Dict[str, Any]], assets: Dict[str, Dict[str, Any]],
+                      t_type: str, duration: Any, r: Fraction) -> None:
+    """Lay the render project's clips out as ffmpeg-skill's timeline export does (scripts/_common/timeline.py, read
+    only): render.py overlaps neighbours by the transition length d, and an editor centres a dissolve on the cut, so
+    each clip gives d - d // 2 frames of its head and d // 2 of its tail to its dissolves. The items become frame
+    ranges of the visible parts, each with a `transition_in` of d frames (the odd frame before the cut)."""
+    try:
+        d = seconds_to_frames(_seconds(duration, "transition.duration"), r)
+    except TimecodeError as e:
+        raise NleBridgeError("INVALID_PLAN", f"transition.duration: {e}")
+    if d <= 0:
+        return
+    half_a, half_b = d // 2, d - d // 2
+    pos = 0
+    by_id = {it["id"]: it for it in a_items}
+    for i, it in enumerate(v_items):
+        speed = float(it.get("speed") or 1.0)
+        src_in = seconds_to_frames(it["in"], r)
+        out = it.get("out")
+        src_out = seconds_to_frames(out if out is not None else assets[it["asset"]]["duration"], r)
+        if src_out <= src_in:
+            raise NleBridgeError("INVALID_PLAN", f"clips[{i}]: out is not after in")
+        length = int(round((src_out - src_in) / speed))
+        head = half_b if i > 0 else 0
+        tail = half_a if i < len(v_items) - 1 else 0
+        visible = length - head - tail
+        if visible <= 0:
+            raise NleBridgeError("INVALID_PLAN", f"clips[{i}] is shorter than its transitions ({d} frames each)")
+        s_in = src_in + int(round(head * speed))
+        frames = {"source_in": s_in, "source_out": s_in + int(round(visible * speed)), "record_in": pos,
+                  "record_out": pos + visible}
+        if i > 0:
+            frames["transition_in"] = {"type": t_type if t_type != "fade" else "dissolve", "frames": d}
+        pos += visible
+        for target in (it, by_id.get(it["id"] + "a")):
+            if target is None:
+                continue
+            for k in ("in", "out"):
+                target.pop(k, None)
+            target.update(frames)
+
+
 def load_doc(path: str) -> Any:
     try:
         with open(path, encoding="utf-8-sig") as fh:
@@ -271,8 +321,9 @@ def load_doc(path: str) -> Any:
 
 def load(path: str, *, rate: Any = None, subject: Optional[str] = None, prober: Optional[Prober] = None,
          start_timecode: Optional[str] = None, asset_starts: Optional[Dict[str, int]] = None,
-         drop_frame: Optional[bool] = None) -> Dict[str, Any]:
-    """Any accepted input -> normalised timeline. `rate` overrides the input's rate (needed for an EDL)."""
+         drop_frame: Optional[bool] = None, dissolves: bool = False) -> Dict[str, Any]:
+    """Any accepted input -> normalised timeline. `rate` overrides the input's rate (needed for an EDL). `dissolves`
+    lays a render project's transition out as cross dissolves (from_render)."""
     if not os.path.isfile(path):
         raise NleBridgeError("INPUT_NOT_FOUND", f"no such file: {path}")
     text = load_doc(path)
@@ -298,7 +349,7 @@ def load(path: str, *, rate: Any = None, subject: Optional[str] = None, prober: 
     if kind == "agent":
         return _df(from_agent(doc, subject=subject, rate=rate, base_dir=base_dir), drop_frame)
     if kind == "render":
-        return _df(from_render(doc, rate=rate, base_dir=base_dir, prober=prober), drop_frame)
+        return _df(from_render(doc, rate=rate, base_dir=base_dir, prober=prober, dissolves=dissolves), drop_frame)
     if kind == "otio":
         raw = otio_io.read(text, name_hint=name, rate=rate)
     elif kind == "fcp7":

@@ -27,6 +27,7 @@ from . import __version__
 from .export import sha256_file, write_files
 from .model import NleBridgeError, asset_start_frames, base_name, rate_of, start_frames, summary, warning
 from .timecode import frames_to_timecode, seconds_to_frames
+from .transitions import resolve as resolve_transitions, tails
 
 RELINK_SCHEMA = "nle-bridge/relink@1"
 CONFORM_SCHEMA = "nle-bridge/conform@1"
@@ -47,8 +48,10 @@ def _write_json(path: str, doc: Any) -> None:
 
 
 def relink_entries(tl: Dict[str, Any], probe: Optional[Callable[[str], Optional[Dict[str, Any]]]],
-                   hash_media: bool = True) -> Dict[str, Any]:
+                   hash_media: bool = True, dissolves: bool = False) -> Dict[str, Any]:
     rate = rate_of(tl)
+    heads = resolve_transitions(tl)[0] if dissolves else {}
+    leaving = tails(heads)
     drop = tl["drop_frame"]
     start = start_frames(tl)
     warns: List[Dict[str, Any]] = []
@@ -107,11 +110,15 @@ def relink_entries(tl: Dict[str, Any], probe: Optional[Callable[[str], Optional[
                 if it.get("asset") != aid:
                     continue
                 n = it["record_out"] - it["record_in"]
-                uses.append({"item": it["id"], "track": t["name"],
-                             "source_in": frames_to_timecode(base + it["source_in"], rate, drop),
-                             "source_out": frames_to_timecode(base + it["source_in"] + n, rate, drop),
-                             "record_in": frames_to_timecode(start + it["record_in"], rate, drop),
-                             "record_out": frames_to_timecode(start + it["record_out"], rate, drop)})
+                use = {"item": it["id"], "track": t["name"],
+                       "source_in": frames_to_timecode(base + it["source_in"], rate, drop),
+                       "source_out": frames_to_timecode(base + it["source_in"] + n, rate, drop),
+                       "record_in": frames_to_timecode(start + it["record_in"], rate, drop),
+                       "record_out": frames_to_timecode(start + it["record_out"], rate, drop)}
+                if it["id"] in heads or it["id"] in leaving:  # a dissolve uses media beyond the visible range
+                    use["handle_before"] = heads[it["id"]]["before"] if it["id"] in heads else 0
+                    use["handle_after"] = leaving[it["id"]]["after"] if it["id"] in leaving else 0
+                uses.append(use)
         e["used"] = uses
         out.append(e)
     return {"schema": RELINK_SCHEMA, "rate": tl["rate"], "drop_frame": drop, "media": out, "warnings": warns}
@@ -120,7 +127,8 @@ def relink_entries(tl: Dict[str, Any], probe: Optional[Callable[[str], Optional[
 def package(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optional[str] = None,
             copy_media: bool = False, make_zip: bool = False, overwrite: bool = False,
             probe: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None, hash_media: bool = True,
-            inputs: Optional[List[str]] = None, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            inputs: Optional[List[str]] = None, extra: Optional[Dict[str, Any]] = None,
+            dissolves: bool = False) -> Dict[str, Any]:
     out_dir = os.path.abspath(out_dir)
     if os.path.exists(out_dir) and os.listdir(out_dir) and not overwrite:
         raise NleBridgeError("OUTPUT_EXISTS", f"{out_dir} is not empty: pass --overwrite (only the package's own "
@@ -133,7 +141,7 @@ def package(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optio
         if rp == os.path.realpath(out_dir) or rp.startswith(os.path.realpath(out_dir) + os.sep):
             raise NleBridgeError("OUTPUT_IS_INPUT", f"the package folder {out_dir} holds an input ({p})")
     os.makedirs(os.path.join(out_dir, "timeline"), exist_ok=True)
-    relink = relink_entries(tl, probe, hash_media)
+    relink = relink_entries(tl, probe, hash_media, dissolves)
     warns = list(relink["warnings"])
     tl_out = tl
     if copy_media:
@@ -153,7 +161,8 @@ def package(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optio
             e["package_path"] = f"media/{fname}"
             tl_out["assets"][e["asset"]]["path"] = dest
     stem = name or tl["name"]
-    written = write_files(tl_out, os.path.join(out_dir, "timeline"), formats, name=stem, overwrite=True, inputs=inputs)
+    written = write_files(tl_out, os.path.join(out_dir, "timeline"), formats, name=stem, overwrite=True, inputs=inputs,
+                          dissolves=dissolves)
     warns += written["warnings"]
     tl_json = os.path.join(out_dir, "timeline", stem + ".json")
     _write_json(tl_json, tl_out)

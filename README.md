@@ -50,6 +50,8 @@ nle-bridge import from_editor.xml -o plan_v2.json
 
 **Never dropped silently.** Effects, speed changes, titles / generators and transitions do not survive interchange. Each one is a warning naming the item (`SPEED_NOT_EXPORTED`, `EFFECT_NOT_EXPORTED`, `TITLE_NOT_EXPORTED`, `TRANSITION_NOT_EXPORTED`), and so is every format-specific loss (`TRACK_NOT_EXPORTED`, `LEVEL_NOT_EXPORTED`, `MARKER_COLOR_NOT_EXPORTED`, ...). `--strict` exits 5 instead of writing. A clip with a speed change is written at 100 % from its in point for its planned length, so the cut points stay where the plan put them.
 
+**Dissolves (`--dissolves`).** A plan item's `transition_in` (`"dissolve"`, or `{"type": "dissolve", "duration": 0.5}` in seconds or `"frames"`) is written as a cross dissolve centred on the cut, in all three formats, as ffmpeg-skill's `render --export-timeline` writes it: the cut stays where the plan puts it and the dissolve borrows media beyond the clips' visible ranges (the odd frame before the cut). OTIO gets a Transition between the clips, FCP7 XML a transitionitem ("Cross Dissolve" on video, "Cross Fade (+3dB)" on audio), the EDL a `D` event. One that cannot be written (no clip right before it, clips too short, too little media beyond an in or out point) stays a hard cut with `TRANSITION_NOT_EXPORTED` saying why; a wipe or other type is written as a cross dissolve (`TRANSITION_AS_DISSOLVE`). A render project's transition (render.py's default 0.5 s fade) is laid out as ffmpeg-skill lays it, so the timeline is as long as the render. Without `--dissolves` every transition is a named hard cut, as before. The relink manifest lists the handles each dissolve needs. [ADR-006](docs/decisions.md).
+
 **Time.** Every time is a whole frame at an exact rate: 23.976 is 24000/1001, 29.97 is 30000/1001, 59.94 is 60000/1001. Drop-frame timecode exists at 29.97 and 59.94 only (`;` before the frames, `FCM: DROP FRAME`). Seconds become frames by rounding to the nearest frame, ties to even, the rule ffmpeg-skill's own timeline export uses. The record side starts at 01:00:00:00 unless the plan says otherwise; source timecodes are the media's own start timecode plus the in point. Why these choices: [docs/decisions.md](docs/decisions.md) ADR-001.
 
 ## Beat grid
@@ -79,7 +81,8 @@ Picture size, rate and length come from ffmpeg-skill `probe` when ffmpeg-skill i
 - **Cut points** of the first video track: each plan cut with its returned position and the move in frames, and the cuts added or removed.
 - **Markers** added, removed, moved, renamed, re-commented or re-coloured. Beat-grid markers are counted, not diffed.
 - **Beats** (with `--beats`): for each cut, the nearest beat (`bar.beat`), the signed offset in frames (positive: after the beat), `on_beat` within `--beat-tolerance` (default 0.5 frame), for the plan's position and the returned one; the summary counts the cuts that moved off the beat.
-- **Not imported**: effects, speed changes, transitions and titles the editor added are listed under `not_imported`; titles in the plan are under `not_compared` (they never left).
+- **Dissolves** are read back from all three formats and compared: a dissolve added, removed or changed in length is a `transition` change (an EDL has no cut inside a dissolve, so it is read as centred). Pass `--dissolves` when the plan was exported with it.
+- **Not imported**: effects, speed changes, other transitions and titles the editor added are listed under `not_imported`; titles in the plan are under `not_compared` (they never left).
 
 `--timeline-out` writes the returned timeline as a new plan (`nle-bridge/timeline@1`, the plan's asset ids, `provenance: EDITOR`). Method and limits: [ADR-003](docs/decisions.md).
 
@@ -87,9 +90,9 @@ Picture size, rate and length come from ffmpeg-skill `probe` when ffmpeg-skill i
 
 | Command | What it does |
 |---|---|
-| `export <plan> -o <dir> [--formats otio,fcp7,edl,srt] [--name stem] [--subject s] [--fps r] [--drop-frame] [--beats grid] [--beat-markers all\|bars\|none] [--strict]` | The timelines and the SRT; `files` with sha256 and the independent re-read (`verification`), `warnings`, `timeline` summary |
+| `export <plan> -o <dir> [--formats otio,fcp7,edl,srt] [--name stem] [--subject s] [--fps r] [--drop-frame] [--dissolves] [--beats grid] [--beat-markers all\|bars\|none] [--strict]` | The timelines and the SRT; `files` with sha256 and the independent re-read (`verification`), `warnings`, `timeline` summary |
 | `conform <plan> -o <dir> [--copy-media] [--zip] [--no-hash] [--no-probe] [--ffmpeg-skill dir] ...` | The conform package above |
-| `diff <plan> <returned> [-o diff.json] [--timeline-out plan.json] [--beats grid] [--beat-tolerance 0.5]` | `nle-bridge/diff@1` |
+| `diff <plan> <returned> [-o diff.json] [--timeline-out plan.json] [--dissolves] [--beats grid] [--beat-tolerance 0.5]` | `nle-bridge/diff@1` |
 | `import <file> [-o timeline.json] [--fps r] [--subject s]` | Any input as `nle-bridge/timeline@1` |
 | `contract --json` | Machine-readable contract in Velisa's registry shape |
 | `doctor --json` | Python, ffmpeg-skill (optional), opentimelineio (optional) |
@@ -99,7 +102,7 @@ Every command prints one JSON document with `--json`. Existing outputs are refus
 ## Limits
 
 - Neither NLE was available to test against: the files are checked with opentimelineio and its FCP7 XML and CMX 3600 adapters (and ffmpeg-skill's own exports), not by importing them into Premiere or Resolve yet.
-- Hard cuts only. Dissolves, speed ramps, effects and titles are named, not written; they stay in the agent's ffmpeg path or are redone in the NLE.
+- Cuts, and cross dissolves with `--dissolves`. Other transitions, speed ramps, effects and titles are named, not written; they stay in the agent's ffmpeg path or are redone in the NLE. A FCP7 `center` dissolve of an odd length has no exact centre: this skill puts the odd frame before the cut (ffmpeg-skill's rule), OTIO's FCP7 adapter one frame later.
 - Clips are counted at the timeline rate; a source at another rate is a `RATE_MISMATCH` warning and the NLE conforms it.
 - FCP7 XML markers have no colour. Premiere writes one audio track per channel, so a stereo clip comes back as two linked clips on A1 and A2.
 - FCPXML (Final Cut Pro X) and AAF are not read or written here.
@@ -111,7 +114,7 @@ pip install -e '.[test]'
 python -m unittest discover -s tests -v
 ```
 
-Timecode at 23.976, 25, 29.97 DF / NDF and 59.94 DF / NDF (anchors, every frame of the first 40 000 round trip, labels drop-frame skips are refused); every format written and read back identical at every rate; the same files read by opentimelineio and its FCP7 / CMX 3600 adapters frame for frame, and timelines written by those adapters read back; editor changes (trims, a razor cut, a removed clip, moved and added markers) on OTIO, FCP7 XML and EDL; beat markers and beat offsets; the agent's project IR and an ffmpeg-skill render project as input; conform packages (relink facts, missing media, deterministic zip). With ffmpeg and an ffmpeg-skill checkout, media facts come from the real `probe`, and ffmpeg-skill's own `render --export-timeline` output is read and compared with this skill's; with a Velisa checkout, the registry conformance checks and the contract schema run.
+Timecode at 23.976, 25, 29.97 DF / NDF and 59.94 DF / NDF (anchors, every frame of the first 40 000 round trip, labels drop-frame skips are refused); every format written and read back identical at every rate; the same files read by opentimelineio and its FCP7 / CMX 3600 adapters frame for frame, and timelines written by those adapters read back; editor changes (trims, a razor cut, a removed clip, moved and added markers) on OTIO, FCP7 XML and EDL; beat markers and beat offsets; cross dissolves written, read back and compared in all three formats, read by OTIO's adapters and written by them; the agent's project IR and an ffmpeg-skill render project as input; conform packages (relink facts, missing media, deterministic zip). With ffmpeg and an ffmpeg-skill checkout, media facts come from the real `probe`, and ffmpeg-skill's own `render --export-timeline` output is read and compared with this skill's, with and without its default dissolve; with a Velisa checkout, the registry conformance checks and the contract schema run.
 
 ## License
 

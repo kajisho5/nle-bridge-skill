@@ -16,6 +16,8 @@ Every time is a whole frame count at the timeline's exact `rate`:
 
 `source_in` / `source_out` count from the first frame of the media (its start timecode is in the asset), and
 `record_in` / `record_out` from the timeline's first frame (shown as `start_timecode`). Out points are exclusive.
+An item may carry `transition_in` ({"type", "frames", "before"}: a transition from the clip that ends where it starts,
+`before` of its frames before the cut; see normalise_transition and transitions.py).
 
 A plan written by hand or by an agent may give seconds instead of frames: `in` / `out` (source seconds) and
 optionally `at` (record seconds) on an item, `at` (seconds) instead of `at_frame` on a marker. Items with no record position follow each other on
@@ -118,6 +120,38 @@ def _secs(value: Any, what: str, rate: Fraction) -> int:
         return seconds_to_frames(value, rate)
     except TimecodeError as e:
         raise NleBridgeError("INVALID_PLAN", f"{what}: {e}")
+
+
+DEFAULT_TRANSITION_SECONDS = 0.5  # ffmpeg-skill render.py's default transition length
+
+
+def normalise_transition(value: Any, rate: Fraction, where: str) -> Optional[Dict[str, Any]]:
+    """A transition into a clip -> {"type", "frames", "before"} (None for type none or zero length).
+
+    Written as a type name ("dissolve") or an object: {"type", "duration" (seconds, default 0.5 as in ffmpeg-skill) |
+    "frames" | "duration_frames", "before"}. `before` is how many of the frames lie before the cut; by default the
+    transition is centred on the cut with the odd frame before it (ffmpeg-skill: the incoming clip gives
+    d - d // 2 frames of head, the outgoing clip d // 2 frames of tail)."""
+    t = {"type": value} if isinstance(value, str) else value
+    if not isinstance(t, dict):
+        raise NleBridgeError("INVALID_PLAN", f"{where} must be a transition type or an object")
+    kind = str(t.get("type") or "dissolve")
+    if kind.lower() == "none":
+        return None
+    if t.get("frames") is not None:
+        frames = _int(t["frames"], f"{where}.frames")
+    elif t.get("duration_frames") is not None:
+        frames = _int(t["duration_frames"], f"{where}.duration_frames")
+    else:
+        frames = _secs(t.get("duration", DEFAULT_TRANSITION_SECONDS), f"{where}.duration", rate)
+    if frames < 0:
+        raise NleBridgeError("INVALID_PLAN", f"{where}: a transition cannot be negative")
+    if frames == 0:
+        return None
+    before = _int(t["before"], f"{where}.before") if t.get("before") is not None else frames - frames // 2
+    if not 0 <= before <= frames:
+        raise NleBridgeError("INVALID_PLAN", f"{where}.before must be between 0 and {frames}")
+    return {"type": kind, "frames": frames, "before": before}
 
 
 def normalise(doc: Dict[str, Any], *, base_dir: Optional[str] = None, rate: Any = None) -> Dict[str, Any]:
@@ -253,9 +287,13 @@ def normalise(doc: Dict[str, Any], *, base_dir: Optional[str] = None, rate: Any 
                 item["speed"] = round(speed, 6)
             if it.get("gain_db") is not None:
                 item["gain_db"] = float(it["gain_db"])
-            for k in ("effects", "transition_in", "text"):
+            for k in ("effects", "text"):
                 if it.get(k):
                     item[k] = it[k]
+            if it.get("transition_in"):
+                tr = normalise_transition(it["transition_in"], r, f"{where}.transition_in")
+                if tr:
+                    item["transition_in"] = tr
             items.append(item)
             pos = rec_out
         items.sort(key=lambda x: (x["record_in"], x["record_out"]))
