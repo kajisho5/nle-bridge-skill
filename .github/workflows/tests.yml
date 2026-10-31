@@ -1,0 +1,63 @@
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-24.04, not -latest: Ubuntu 26.04 runners have no Python 3.9.
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+        python: ["3.9", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # opentimelineio and its FCP7 XML / CMX 3600 adapters: the reference reader of every file this skill writes
+      - run: pip install -e ".[test]"
+      - name: Unit tests, reference-reader tests included (not skipped)
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee test.log
+          ! grep -q "skipped 'needs opentimelineio" test.log
+      - run: nle-bridge contract --json
+      - run: nle-bridge doctor --json
+
+  integration:
+    # ffmpeg from apt and read-only checkouts of ffmpeg-skill (media facts through `probe`, and its own
+    # `render --export-timeline` files read back) and Velisa (registry conformance, contract schema). No test may skip.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kajisho5/ffmpeg-skill
+          path: ffmpeg-skill
+      - uses: actions/checkout@v4
+        with:
+          repository: kajisho5/Velisa
+          path: Velisa
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: pip install -e ".[test]" jsonschema
+      - name: Integration tests run (no test may skip)
+        env:
+          FFMPEG_SKILL_DIR: ${{ github.workspace }}/ffmpeg-skill
+          VELISA_DIR: ${{ github.workspace }}/Velisa
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee test.log
+          if grep '\.\.\. skipped' test.log; then echo "tests were skipped"; exit 1; fi
+      - name: doctor
+        env:
+          FFMPEG_SKILL_DIR: ${{ github.workspace }}/ffmpeg-skill
+        run: nle-bridge doctor --json

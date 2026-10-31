@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nle-bridge-skill"
+version = "0.1.0"
+description = "Timeline interchange with Premiere Pro and DaVinci Resolve: OTIO, FCP7 XML and CMX 3600 EDL with an SRT sidecar, conform packages with a relink manifest, beat-grid markers, and the round trip of the editor's changes as a diff. Local, no network, no live NLE control."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [{name = "kajisho5"}]
+keywords = ["otio", "opentimelineio", "fcp7-xml", "edl", "cmx3600", "premiere-pro", "davinci-resolve", "conform", "timecode", "agent-skill", "video-production"]
+dependencies = []
+
+[project.optional-dependencies]
+# Re-reads every written .otio with the reference implementation as a check (docs/decisions.md ADR-001).
+# opentimelineio is Apache-2.0. Nothing else needs it: the files are written and read with the standard library.
+otio = ["opentimelineio>=0.17"]
+# Test-only: OTIO's own FCP7 XML and CMX 3600 adapters (Apache-2.0) read this skill's .xml and .edl as an
+# independent second reader in the tests (CI installs them; the skill never imports them).
+test = ["opentimelineio>=0.17", "otio-fcp-adapter>=1.0", "otio-cmx3600-adapter>=1.0"]
+
+[project.scripts]
+nle-bridge = "nle_bridge.cli:main"
+
+[project.urls]
+Repository = "https://github.com/kajisho5/nle-bridge-skill"
+
+[tool.setuptools.packages.find]
+where = ["src"]
