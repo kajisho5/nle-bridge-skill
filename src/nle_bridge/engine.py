@@ -1,6 +1,7 @@
 """The only media boundary: ffmpeg-skill's own `probe`, run as `python3 <ffmpeg-skill>/scripts/probe.py <file> --json`.
 This skill never runs ffmpeg or ffprobe itself. It reads media only to describe it (size, rate, length) for the
-relink manifest; nothing is decoded or rendered here, and every timeline is written without it.
+relink manifest, and since ffmpeg-skill 3.0.0 for each file's start timecode (`probe`'s `timecode`); nothing is
+decoded or rendered here, and every timeline is written without it.
 
 ffmpeg-skill is found, in order: --ffmpeg-skill, $NLE_BRIDGE_FFMPEG_SKILL_DIR, $FFMPEG_SKILL_DIR,
 ~/.claude/skills/ffmpeg-skill, ./vendor/ffmpeg-skill, ../ffmpeg-skill. It is optional: without it the facts come
@@ -100,11 +101,17 @@ def run_tool(skill: FfmpegSkill, tool: str, args: List[str], *, timeout: float =
 
 def prober(skill: FfmpegSkill, *, timeout: float = 600.0, runner: Runner = subprocess_runner) -> Callable[[str], Optional[Dict[str, Any]]]:
     """path -> ffmpeg-skill probe document, or None for a file that is not there (a missing file is the
-    manifest's finding, not an engine failure)."""
+    manifest's finding, not an engine failure). Each file is probed once per prober: reading a plan and writing its
+    relink manifest ask about the same media."""
+    seen: Dict[str, Dict[str, Any]] = {}
+
     def probe(path: str) -> Optional[Dict[str, Any]]:
         if not os.path.isfile(path):
             return None
-        return run_tool(skill, "probe", [path], timeout=timeout, runner=runner)
+        key = os.path.realpath(path)
+        if key not in seen:
+            seen[key] = run_tool(skill, "probe", [path], timeout=timeout, runner=runner)
+        return seen[key]
     return probe
 
 
@@ -114,4 +121,14 @@ def engine_status(explicit: Optional[str]) -> Dict[str, Any]:
         return {"found": False, "root": None, "version": None, "missing_tools": list(REQUIRED_TOOLS),
                 "looked_in": candidates(explicit)}
     return {"found": True, "root": skill.root, "version": skill.version,
-            "missing_tools": [t for t in REQUIRED_TOOLS if t not in skill.tools]}
+            "missing_tools": [t for t in REQUIRED_TOOLS if t not in skill.tools],
+            "probe_timecode": probe_reports_timecode(skill)}
+
+
+def probe_reports_timecode(skill: FfmpegSkill) -> Optional[bool]:
+    """Whether this ffmpeg-skill's probe has the `timecode` field (added in 3.0.0), from its version; None when the
+    version cannot be read. Only for doctor's note: conform and export read the field whenever a probe has it."""
+    try:
+        return int(skill.version.split(".")[0]) >= 3
+    except ValueError:
+        return None

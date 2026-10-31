@@ -20,6 +20,8 @@ LOSS_CODES = ("SPEED_NOT_EXPORTED", "EFFECT_NOT_EXPORTED", "TITLE_NOT_EXPORTED",
               "TRACK_NOT_EXPORTED", "LEVEL_NOT_EXPORTED", "LEVEL_METADATA_ONLY", "MARKER_COLOR_NOT_EXPORTED",
               "MARKER_DURATION_NOT_EXPORTED", "CAPTIONS_NOT_EXPORTED", "NOT_IN_TIMELINE",
               "TRANSITION_AS_DISSOLVE", "TRANSITION_OFF_CENTRE")
+# Warning codes about the media's start timecode (the plan's value and the probe's): not a loss, so not --strict.
+TIMECODE_CODES = ("START_TIMECODE_MISMATCH", "START_TIMECODE_UNREADABLE")
 
 _PLAN_ARGS = ["[--subject <asset>]", "[--fps <rate>]", "[--drop-frame | --non-drop-frame]", "[--dissolves]",
               "[--beats <grid.json>]",
@@ -89,9 +91,14 @@ def contract() -> Dict[str, Any]:
                       "input_artifact_types": ["timeline", "project_ir"], "output_artifact_types": ["timeline"],
                       "mutates_input": False}],
         "dependencies": [{"id": "ffmpeg-skill", "skill_id": "ffmpeg-skill", "kind": "skill", "required": False,
-                          "version_range": ">=2.0.0 <3.0.0", "tools": list(REQUIRED_TOOLS),
+                          "version_range": ">=2.0.0 <4.0.0", "tools": list(REQUIRED_TOOLS),
                           "for": ["nle-bridge/conform (media facts for the relink manifest)",
-                                  "nle-bridge/export of a render project without out points (clip lengths)"],
+                                  "nle-bridge/export of a render project without out points (clip lengths)",
+                                  "media start timecodes for OTIO / FCP7 XML / EDL source timecodes and relink.json "
+                                  "(probe `timecode`, 3.0.0 and later)"],
+                          # read when the probe has it: 2.x (the only line that still runs on Python 3.9) has no
+                          # `timecode`, and the start timecode is then not known, as before (docs/decisions.md ADR-008)
+                          "fields": {"probe.timecode": {"since": "3.0.0", "when_absent": "start timecode not known"}},
                           "located_by": ["--ffmpeg-skill"] + [f"${e}" for e in ENV_DIRS]
                           + ["~/.claude/skills/ffmpeg-skill", "./vendor/ffmpeg-skill", "../ffmpeg-skill"]},
                          {"id": "opentimelineio", "skill_id": "opentimelineio", "kind": "python", "required": False,
@@ -133,12 +140,17 @@ def contract() -> Dict[str, Any]:
                   "default_beats_per_bar": DEFAULT_BEATS_PER_BAR,
                   "bars": "STATED when the grid lists bars (or is generated from first_downbeat), else ASSUMED every N beats",
                   "offset": "seconds from the timeline start to the music's 0 (default 0)"},
+        "start_timecode": {"from": ["the plan (assets.<id>.start_timecode, drop_frame)",
+                                    "ffmpeg-skill probe `timecode` (3.0.0+): video stream, tmcd data stream, container"],
+                           "precedence": "the plan's value wins; a probe value that differs is START_TIMECODE_MISMATCH",
+                           "unknown": "00:00:00:00, and relink.json says why (start_timecode_note)"},
         "conform": {"schema": CONFORM_SCHEMA, "relink_schema": RELINK_SCHEMA,
                     "layout": ["timeline/<name>.otio|.xml|.edl|.srt|.json", "media/ (--copy-media)", "relink.json",
                                "manifest.json"], "zip": "<dir>.zip, fixed entry dates, sorted"},
         "diff": {"schema": DIFF_SCHEMA, "provenance": "OBSERVED",
                  "beat_offset": "signed frames from the nearest beat (positive: the cut is after it)"},
-        "warnings": {"loss_codes": list(LOSS_CODES), "strict": "--strict exits 5 (CONTENT_NOT_EXPORTED) before writing"},
+        "warnings": {"loss_codes": list(LOSS_CODES), "strict": "--strict exits 5 (CONTENT_NOT_EXPORTED) before writing",
+                     "start_timecode_codes": list(TIMECODE_CODES)},
         "execution": {"canonical_invocation": ["nle-bridge", "<command>", "...", "--json"], "network": False, "shell": False,
                       "engine": "ffmpeg-skill probe only, optional (scripts run with this Python, argv only)",
                       "input_is_read_only": True,

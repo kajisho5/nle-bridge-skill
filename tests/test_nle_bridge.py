@@ -999,6 +999,121 @@ class ConformTests(TmpCase):
         self.assertIsNone(a["sha256"])
 
 
+class StartTimecodeTests(TmpCase):
+    """A media file's start timecode from ffmpeg-skill probe's `timecode` (3.0.0+), against fake probe documents;
+    RealProbeTests does the same with files written by `ffmpeg -timecode`."""
+    _media = ConformTests._media
+
+    def fake(self, tcs, version3=True):
+        def probe(path):
+            doc = {"duration": 60.0, "video": {"fps": 29.97, "width": 1920, "height": 1080}, "audio": {"channels": 2}}
+            if version3:
+                v = tcs.get(os.path.basename(path))
+                doc["timecode"] = ({"value": v, "drop_frame": ";" in v, "source": "stream:0"} if v
+                                   else {"value": None, "drop_frame": None, "source": None})
+            return doc
+        return probe
+
+    def test_probe_fills_what_the_plan_leaves_out_and_the_plan_wins(self):
+        media = self._media()
+        plan = sample_plan("30000/1001", True, media_dir=media)
+        path = self.write("plan.json", plan)
+        probe = self.fake({"cam a.mov": "11:00:00;00", "cam_b.mov": "02:00:00;00"})
+        tl = load(path, prober=probe)
+        a, b, m = tl["assets"]["a"], tl["assets"]["b"], tl["assets"]["m"]
+        self.assertEqual((a["start_timecode"], a["start_timecode_from"]), ("10:00:00:00", "plan"))
+        self.assertEqual((b["start_timecode"], b["drop_frame"], b["start_timecode_from"], b["start_timecode_source"]),
+                         ("02:00:00;00", True, "ffmpeg-skill probe", "stream:0"))
+        self.assertIsNone(m["start_timecode"])
+        mism = [w for w in tl["warnings"] if w["code"] == "START_TIMECODE_MISMATCH"]
+        self.assertEqual([w["item"] for w in mism], ["a"])
+        self.assertIn("11:00:00;00", mism[0]["message"])
+        res = package(tl, os.path.join(self.tmp, "p"), ["edl", "fcp7"], hash_media=False, probe=probe)
+        rel = {e["asset"]: e for e in res["relink"]["media"]}
+        self.assertEqual((rel["b"]["start_timecode"], rel["b"]["drop_frame"]), ("02:00:00;00", True))
+        self.assertEqual(rel["b"]["facts_from"]["start_timecode"], "ffmpeg-skill probe")
+        self.assertEqual(rel["b"]["facts_from"]["drop_frame"], "ffmpeg-skill probe")
+        self.assertEqual(rel["b"]["start_timecode_source"], "stream:0")
+        self.assertEqual(rel["b"]["used"][0]["source_in"], "02:00:02;00")
+        self.assertEqual((rel["a"]["start_timecode"], rel["a"]["facts_from"]["start_timecode"]), ("10:00:00:00", "plan"))
+        self.assertIn("found no timecode tag", rel["m"]["start_timecode_note"])
+        self.assertEqual([w["code"] for w in res["warnings"]].count("START_TIMECODE_MISMATCH"), 1)
+        # the timelines in the package carry the probe's start: EDL source timecodes are absolute
+        edl = Path(res["package"], "timeline", "demo.edl").read_text(encoding="utf-8")
+        self.assertIn("02:00:02;00 02:00:04;15", edl)
+        back = load_returned(tl, os.path.join(res["package"], "timeline", "demo.edl"))
+        self.assertEqual(diff(tl, back)["summary"]["cuts_moved"], 0)
+
+    def test_package_takes_the_probe_start_when_the_plan_was_read_without_it(self):
+        media = self._media()
+        tl = normalise(sample_plan("30000/1001", True, media_dir=media))
+        res = package(tl, os.path.join(self.tmp, "p"), ["fcp7"], hash_media=False,
+                      probe=self.fake({"cam_b.mov": "02:00:00;00"}))
+        b = next(e for e in res["relink"]["media"] if e["asset"] == "b")
+        self.assertEqual((b["start_timecode"], b["facts_from"]["start_timecode"]), ("02:00:00;00", "ffmpeg-skill probe"))
+        back = load(os.path.join(res["package"], "timeline", "demo.xml"))
+        got = next(x for x in back["assets"].values() if x["name"] == "cam_b.mov")
+        self.assertEqual(got["start_timecode"], "02:00:00;00")
+        self.assertIsNone(tl["assets"]["b"]["start_timecode"])  # the caller's timeline is not changed
+
+    def test_a_2x_probe_without_timecode_leaves_it_unknown(self):
+        media = self._media()
+        path = self.write("plan.json", sample_plan("25", media_dir=media))
+        probe = self.fake({}, version3=False)
+        tl = load(path, prober=probe)
+        self.assertIsNone(tl["assets"]["b"]["start_timecode"])
+        self.assertNotIn("start_timecode_from", tl["assets"]["b"])
+        res = package(tl, os.path.join(self.tmp, "p"), ["otio"], hash_media=False, probe=probe)
+        b = next(e for e in res["relink"]["media"] if e["asset"] == "b")
+        self.assertIsNone(b["start_timecode"])
+        self.assertIsNone(b["facts_from"]["start_timecode"])
+        self.assertIn("3.0.0 and later", b["start_timecode_note"])
+
+    def test_render_project_and_agent_ir_take_the_probe_start(self):
+        media = self._media()
+        probe = self.fake({"cam a.mov": "01:00:00;00"})
+        proj = self.write("project.json", {"clips": [{"src": os.path.join(media, "cam a.mov"), "in": 1, "out": 3}],
+                                           "transition": {"type": "none"}})
+        tl = load(proj, prober=probe)
+        a = next(iter(tl["assets"].values()))
+        self.assertEqual((a["start_timecode"], a["drop_frame"], a["start_timecode_from"]),
+                         ("01:00:00;00", True, "ffmpeg-skill probe"))
+        ir = {"schema_version": "1", "project": {"id": "p"},
+              "assets": {"cam": {"path": os.path.join(media, "cam a.mov"),
+                                 "technical": {"duration": 60, "video": {"fps": 29.97}, "audio": {"channels": 2}}}},
+              "delivery": {"timelines": [{"asset": "cam", "clips": [{"asset": "cam", "in": 1, "out": 3}]}]}}
+        tl = load(self.write("project_ir.json", ir), prober=probe)
+        self.assertEqual(tl["assets"]["cam"]["start_timecode"], "01:00:00;00")
+        files = self.export(self.write("plan2.json", tl), "edl", "--no-probe", "--drop-frame")[1]
+        self.assertIn("01:00:01;00 01:00:03;00", Path(files["edl"]).read_text(encoding="utf-8"))
+
+    def test_an_unusable_probe_timecode_is_named(self):
+        media = self._media()
+        path = self.write("plan.json", sample_plan("30000/1001", True, media_dir=media))
+        tl = load(path, prober=self.fake({"cam_b.mov": "00:01:00;00"}))  # a label drop-frame skips
+        self.assertIsNone(tl["assets"]["b"]["start_timecode"])
+        self.assertEqual([w["item"] for w in tl["warnings"] if w["code"] == "START_TIMECODE_UNREADABLE"], ["b"])
+
+    def test_each_file_is_probed_once(self):
+        media = self._media()
+        calls = []
+
+        def runner(argv, timeout):
+            calls.append(argv[2])
+            return 0, json.dumps({"duration": 4.0, "video": {"fps": 25.0, "width": 64, "height": 36},
+                                  "timecode": {"value": "10:00:00:00", "drop_frame": False, "source": "format"}}), ""
+        skill = engine.FfmpegSkill(self.tmp, "3.0.0", ["probe"])
+        pr = engine.prober(skill, runner=runner)
+        path = self.write("plan.json", sample_plan("25", media_dir=media))
+        tl = load(path, prober=pr)
+        package(tl, os.path.join(self.tmp, "p"), ["otio"], hash_media=False, probe=pr)
+        self.assertEqual(sorted(calls), sorted({a["path"] for a in tl["assets"].values()}))
+        self.assertEqual(tl["assets"]["b"]["start_timecode_source"], "format")
+        self.assertTrue(engine.probe_reports_timecode(skill))
+        self.assertFalse(engine.probe_reports_timecode(engine.FfmpegSkill(self.tmp, "2.24.1", ["probe"])))
+        self.assertIsNone(engine.probe_reports_timecode(engine.FfmpegSkill(self.tmp, "unknown", ["probe"])))
+
+
 # ------------------------------------------------------------------------------------------------ contract / CLI
 class ContractTests(unittest.TestCase):
     def test_contract_shape(self):
@@ -1166,6 +1281,81 @@ class RealProbeTests(TmpCase):
                                  "--formats", "otio", "--json")
         self.assertEqual(code, 0, raw)
         self.assertAlmostEqual(doc["timeline"]["duration"], 3.0, delta=0.1)
+
+    def test_start_timecode_from_files_written_by_ffmpeg_timecode(self):
+        """`ffmpeg -timecode` in a MOV and an MP4 at 25 fps, and 01:00:00;00 at 30000/1001: ffmpeg-skill 3.x probe
+        reports it and it reaches relink.json and the EDL / FCP7 / OTIO source timecodes; ffmpeg-skill 2.x has no
+        `timecode` in probe, and the start timecode stays not known, as before."""
+        media = os.path.join(self.tmp, "m")
+        os.makedirs(media)
+        made = {}
+        for name, rate, tc in (("a.mov", "25", "01:00:00:00"), ("b.mp4", "25", "01:00:00:00"),
+                               ("df.mov", "30000/1001", "01:00:00;00")):
+            made[name] = os.path.join(media, name)
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate={rate}:duration=4",
+                            "-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-shortest", "-c:v", "libx264",
+                            "-pix_fmt", "yuv420p", "-c:a", "aac", "-timecode", tc, made[name]], check=True)
+        skill = engine.locate(str(FFMPEG_SKILL_DIR))
+        v3 = engine.probe_reports_timecode(skill) is not False
+        pr = engine.prober(skill)
+        for name in made:
+            self.assertEqual("timecode" in pr(made[name]), v3, (skill.version, name))
+        plan = {"name": "tc25", "rate": "25", "assets": {"a": {"path": made["a.mov"]}, "b": {"path": made["b.mp4"]}},
+                "tracks": [{"kind": "video", "items": [{"id": "c1", "asset": "a", "in": 1, "out": 2},
+                                                       {"id": "c2", "asset": "b", "in": 2, "out": 3}]}]}
+        pkg = os.path.join(self.tmp, "pkg25")
+        code, doc, raw = run_cli("conform", self.write("tc25.json", plan), "-o", pkg, "--ffmpeg-skill", str(FFMPEG_SKILL_DIR),
+                                 "--json")
+        self.assertEqual(code, 0, raw)
+        rel = {e["asset"]: e for e in doc["relink"]["media"]}
+        edl = Path(pkg, "timeline", "tc25.edl").read_text(encoding="utf-8")
+        if not v3:
+            for e in rel.values():
+                self.assertIsNone(e["start_timecode"])
+                self.assertIn("3.0.0 and later", e["start_timecode_note"])
+            self.assertIn("00:00:01:00 00:00:02:00", edl)
+            return
+        for aid in ("a", "b"):  # the MOV and the MP4
+            self.assertEqual((rel[aid]["start_timecode"], rel[aid]["drop_frame"]), ("01:00:00:00", False), aid)
+            self.assertEqual(rel[aid]["facts_from"]["start_timecode"], "ffmpeg-skill probe", aid)
+            self.assertRegex(rel[aid]["start_timecode_source"], r"^(stream:\d+|format)$")
+        self.assertEqual(rel["a"]["used"][0]["source_in"], "01:00:01:00")
+        self.assertEqual(rel["b"]["used"][0]["source_in"], "01:00:02:00")
+        self.assertIn("01:00:01:00 01:00:02:00", edl)
+        self.assertIn("01:00:02:00 01:00:03:00", edl)
+        tl = load(os.path.join(pkg, "timeline", "tc25.json"))
+        for f in ("tc25.otio", "tc25.xml", "tc25.edl"):
+            back = load_returned(tl, os.path.join(pkg, "timeline", f))
+            self.assertTrue(diff(tl, back)["summary"]["identical"], f)
+            if not f.endswith(".edl"):
+                self.assertEqual(sorted(a["start_timecode"] for a in back["assets"].values()), ["01:00:00:00"] * 2, f)
+        # 29.97 drop-frame: the label's ';' makes it drop-frame; the plan's own value wins over the probe's
+        plan = {"name": "df", "rate": "30000/1001", "drop_frame": True, "assets": {"c": {"path": made["df.mov"]}},
+                "tracks": [{"kind": "video", "items": [{"id": "c1", "asset": "c", "in": 1, "out": 2}]}]}
+        pkg = os.path.join(self.tmp, "pkgdf")
+        code, doc, raw = run_cli("conform", self.write("df.json", plan), "-o", pkg, "--ffmpeg-skill", str(FFMPEG_SKILL_DIR),
+                                 "--json")
+        self.assertEqual(code, 0, raw)
+        c = doc["relink"]["media"][0]
+        self.assertEqual((c["start_timecode"], c["drop_frame"], c["facts_from"]["drop_frame"]),
+                         ("01:00:00;00", True, "ffmpeg-skill probe"))
+        self.assertEqual(c["used"][0]["source_in"], "01:00:01;00")
+        self.assertIn("01:00:01;00 01:00:02;00", Path(pkg, "timeline", "df.edl").read_text(encoding="utf-8"))
+        self.assertIn("<displayformat>DF</displayformat>", Path(pkg, "timeline", "df.xml").read_text(encoding="utf-8"))
+        plan["assets"]["c"]["start_timecode"] = "10:00:00;00"
+        code, doc, raw = run_cli("conform", self.write("df2.json", plan), "-o", os.path.join(self.tmp, "pkgdf2"),
+                                 "--ffmpeg-skill", str(FFMPEG_SKILL_DIR), "--json")
+        self.assertEqual(code, 0, raw)
+        c = doc["relink"]["media"][0]
+        self.assertEqual((c["start_timecode"], c["facts_from"]["start_timecode"]), ("10:00:00;00", "plan"))
+        self.assertEqual([w["item"] for w in doc["warnings"] if w["code"] == "START_TIMECODE_MISMATCH"], ["c"])
+        # a render project gets it from the probe too (plan.load -> probe_timecodes)
+        proj = self.write("project.json", {"clips": [{"src": made["df.mov"], "in": 1, "out": 2}], "transition": {"type": "none"}})
+        got = load(proj, prober=pr, drop_frame=True)
+        a = next(iter(got["assets"].values()))
+        self.assertEqual((a["start_timecode"], a["drop_frame"], a["start_timecode_from"]),
+                         ("01:00:00;00", True, "ffmpeg-skill probe"))
+        self.assertTrue(run_cli("doctor", "--ffmpeg-skill", str(FFMPEG_SKILL_DIR), "--json")[1]["engine"]["probe_timecode"])
 
     def test_reads_what_ffmpeg_skill_render_export_timeline_writes(self):
         """The same render project through ffmpeg-skill `render --export-timeline` (.otio / .edl) and through this

@@ -33,12 +33,21 @@ jobs:
   integration:
     # ffmpeg from apt and read-only checkouts of ffmpeg-skill (media facts through `probe`, and its own
     # `render --export-timeline` files read back) and Velisa (registry conformance, contract schema). No test may skip.
+    # ffmpeg-skill: v3.0.0 (probe reports the media start timecode; needs Python 3.10+ and FFmpeg 6.1+, which
+    # Ubuntu 24.04's apt ffmpeg is), v2.24.1 (the last 2.x: no timecode in probe, the start stays not known) and main.
+    # The dependency's version_range is >=2.0.0 <4.0.0 (docs/decisions.md ADR-008).
+    strategy:
+      fail-fast: false
+      matrix:
+        ffmpeg-skill: [v3.0.0, v2.24.1, main]
+    name: integration (ffmpeg-skill ${{ matrix.ffmpeg-skill }})
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
           repository: kajisho5/ffmpeg-skill
+          ref: ${{ matrix.ffmpeg-skill }}
           path: ffmpeg-skill
       - uses: actions/checkout@v4
         with:
@@ -47,7 +56,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && ffmpeg -version | head -1
       - run: pip install -e ".[test]" jsonschema
       - name: Integration tests run (no test may skip)
         env:
