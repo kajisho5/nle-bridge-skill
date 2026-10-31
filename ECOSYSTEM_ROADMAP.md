@@ -13,7 +13,7 @@ Written on 2026-10-31 from Velisa's ROADMAP ("Premiere Pro and DaVinci Resolve")
 
 | Owned job | Status | Note |
 |---|---|---|
-| NLE連携(タイムライン受け渡し) | partial | Files both ways ([#1](https://github.com/kajisho5/nle-bridge-skill/pull/1)); live NLE control is reuse of the community MCP servers (step 9), real-NLE import unverified (step 8) |
+| NLE連携(タイムライン受け渡し) | partial | Files both ways ([#1](https://github.com/kajisho5/nle-bridge-skill/pull/1)); live NLE control is reuse of two pinned community MCP servers ([docs/live-control.md](docs/live-control.md)), real-NLE import unverified (step 8) |
 
 ## Wiring
 
@@ -35,10 +35,12 @@ Reads video-production-agent's project IR (`delivery.timelines[]`, captions, the
 - [ ] **7. (agent side) adapter** — video-production-agent hands `delivery.timeline` to `nle-bridge export` / `conform` and reads `diff` + `--timeline-out` as a new plan version (belongs to video-production-agent)
 - [ ] **8. Real-NLE check** — import the files into Premiere Pro 25.x and DaVinci Resolve Studio; record what each keeps (EDL marker colours, FCP7 levels, OTIO metadata, start timecodes)
   - Done when: a fixture per NLE in `tests/fixtures/` exported by the real NLE, read back by `diff`
-- [ ] **9. Live control by reuse** — document the pinned community MCP servers (Resolve `ImportTimelineFromFile`, Premiere OTIO import) beside this skill; eval / script tools off. No fork, no copied code
+- [x] **9. Live control by reuse** — document the pinned community MCP servers (Resolve `ImportTimelineFromFile`, Premiere OTIO import) beside this skill; eval / script tools off. No fork, no copied code ([#2](https://github.com/kajisho5/nle-bridge-skill/pull/2); ADR-004, [docs/live-control.md](docs/live-control.md))
+  - Result: davinci-resolve-mcp 4.17.0 (MIT, no code-execution tools) and premiere-pro-mcp 1.27.0 (MIT, `unsafe-script` off, telemetry off without a key). Premiere's server imports the FCP7 XML; it has no OTIO import tool at 1.27.0
 - [ ] **10. Dissolves (optional)** — cross dissolves centred on the cut in all three formats, as ffmpeg-skill does
 - [ ] **11. Premiere stereo pairs** — fold linked per-channel audio clips (A1 + A2) back into one clip in `diff`
 - [ ] **12. Media start timecode** — needs ffmpeg-skill `probe` to report the timecode tag (ffmpeg-skill is treated as complete: a hand-over, not a change here)
+  - Checked ([#2](https://github.com/kajisho5/nle-bridge-skill/pull/2); ADR-005): calling ffprobe here is not allowed (this skill's contract, `ecosystem.json` ownership, Velisa's collision note), so the step stays open. Hand-over: [docs/handover-media-start-timecode.md](docs/handover-media-start-timecode.md). Meanwhile the plan states it, and the agent can take it from ingest-skill's inventory
 
 ## Boundaries
 
