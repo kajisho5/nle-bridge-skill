@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Live control by reuse (roadmap step 9, ADR-004): `docs/live-control.md` pins davinci-resolve-mcp 4.17.0 and premiere-pro-mcp 1.27.0 (both MIT), with their install commands, a chat-app config and the switches that keep script tools, telemetry and self-update off. No server code is used or copied.
+- Media start timecode (roadmap step 12, ADR-005): not read with ffprobe here; a hand-over to ffmpeg-skill `probe` (`docs/handover-media-start-timecode.md`). The step stays open.
+
 ## 0.1.0 - 2026-10-31
 
 First release (roadmap steps 1-6).

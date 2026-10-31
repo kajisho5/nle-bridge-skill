@@ -39,4 +39,4 @@ Exit codes: `0` ok, `2` invalid input or arguments (including an existing output
 
 ## Not this skill's job
 
-Live NLE control (the community Resolve / Premiere MCP servers), rendering and transcoding (ffmpeg-skill), FCPXML for Final Cut (ffmpeg-skill `render --export-timeline`), captions themselves (subtitle-skill), music and its beat measurement (sound-design-skill, ffmpeg-skill `scenes --beats`), planning the edit (video-production-agent).
+Live NLE control (the community Resolve / Premiere MCP servers, pinned and with script tools off: docs/live-control.md), rendering and transcoding (ffmpeg-skill), FCPXML for Final Cut (ffmpeg-skill `render --export-timeline`), captions themselves (subtitle-skill), music and its beat measurement (sound-design-skill, ffmpeg-skill `scenes --beats`), planning the edit (video-production-agent).

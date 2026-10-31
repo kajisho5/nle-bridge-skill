@@ -18,7 +18,7 @@ Timeline interchange with Premiere Pro and DaVinci Resolve, for the [Velisa](htt
 
 Typical use: [video-production-agent](https://github.com/kajisho5/video-production-agent) plans a rough cut. `export` hands it to an editor as a timeline Premiere or Resolve imports. `conform` packs it with what is needed to relink the media on another machine. When the editor is done, the NLE exports OTIO (or FCP7 XML / EDL) and `diff` says what changed: which cuts moved and by how many frames, which clips were trimmed, added or removed, which markers changed. With a beat grid (the music bed's beats, from ffmpeg-skill `scenes --beats` or stated by whatever generated the music), the timelines carry bar and beat markers, and `diff` says how many frames each cut sits off the nearest beat.
 
-This skill writes and reads files. It does not drive a running NLE: live control is left to the community MCP servers (Velisa ROADMAP, "Premiere Pro and DaVinci Resolve"), and none of their code is used here.
+This skill writes and reads files. It does not drive a running NLE: live control is left to the community MCP servers (Velisa ROADMAP, "Premiere Pro and DaVinci Resolve"), and none of their code is used here. [docs/live-control.md](docs/live-control.md) says which two to run beside it, at which pinned versions, with their script tools and telemetry off.
 
 ```bash
 pip install -e '.[otio]'                         # the extra re-reads every .otio with opentimelineio as a check
@@ -68,7 +68,7 @@ pkg/
 pkg.zip                                        with --zip: fixed entry dates, sorted, so the same input gives the same bytes
 ```
 
-Picture size, rate and length come from ffmpeg-skill `probe` when ffmpeg-skill is found (`--ffmpeg-skill`, `$FFMPEG_SKILL_DIR`, `~/.claude/skills/ffmpeg-skill`, `../ffmpeg-skill`), otherwise from the plan; `facts_from` says which. A media file that is not there is a `MEDIA_MISSING` warning, not an error. ffmpeg-skill's probe does not report a media start timecode, so that comes from the plan or is marked unknown.
+Picture size, rate and length come from ffmpeg-skill `probe` when ffmpeg-skill is found (`--ffmpeg-skill`, `$FFMPEG_SKILL_DIR`, `~/.claude/skills/ffmpeg-skill`, `../ffmpeg-skill`), otherwise from the plan; `facts_from` says which. A media file that is not there is a `MEDIA_MISSING` warning, not an error. ffmpeg-skill's probe does not report a media start timecode, so that comes from the plan or is marked unknown (this skill does not run ffprobe itself; [the hand-over](docs/handover-media-start-timecode.md)).
 
 ## Round trip
 

@@ -90,3 +90,55 @@ Generating music, measuring beats (ffmpeg-skill `scenes --beats`), and moving cu
 
 - The agent side: read `diff` and `--timeline-out` as a new plan version (video-production-agent, its adapter step).
 - Premiere's per-channel audio tracks (a stereo clip as two linked clips on A1 and A2) pair track by track and show A2 as added. Folding linked channel clips back into one is a later refinement.
+
+## ADR-004 Live control: reuse two pinned community MCP servers, eval tools off, no code taken
+
+Checked 2026-10-31 against Velisa `docs/ecosystem/ROADMAP.md` ("Premiere Pro and DaVinci Resolve") and the servers' own repositories at their release tags and npm entries (read only; nothing cloned into or copied to this repository).
+
+### Requirements
+
+Velisa's roadmap: live NLE control is reuse. Do not fork the community servers; pin a version; keep eval and script tools off; opt out of telemetry where it exists. Its risks: Resolve automation needs Studio, CEP-based Premiere servers break when CEP is retired, arbitrary-script tools (`execute_extendscript`, `execute_lua`) and shared temp-directory IPC, and one Resolve server without a licence and another under GPL-3.0, from which no code may be copied.
+
+### Candidates
+
+| Server | Licence | Maintenance | Code-execution tools | Telemetry | Verdict |
+|---|---|---|---|---|---|
+| samuelgursky/davinci-resolve-mcp 4.17.0 | MIT | releases every few days, tests, SECURITY.md | none since v3.0.0 (removed; an AST test keeps `exec` / `eval` / `RunScript` out of `src/`) | none; a GitHub release check on start, can be turned off | **Used for Resolve** |
+| leancoderkavy/premiere-pro-mcp 1.27.0 | MIT | releases every few days, tests, SECURITY.md | `execute_extendscript`, `evaluate_expression`, refused unless the `unsafe-script` capability is granted | PostHog, only when `POSTHOG_API_KEY` is set | **Used for Premiere** |
+| Tooflex/davinci-resolve-mcp | none (no licence file) | last commit 2026-07-26 | `execute_lua` | - | Rejected |
+| apvlv/davinci-resolve-mcp | `LICENSE` MIT, a directory says GPL-3.0 | last commit 2026-10-22 | `execute_python`, `execute_lua` | - | Rejected |
+| nepfaff/premiere-pro-mcp | none (no licence file) | last commit 2026-02-09 | one tool that `eval()`s UXP JavaScript | - | Rejected |
+| tro2789/scout-premiere-mcp | proprietary | last commit 2026-09-01 | `execute_extendscript` | - | Rejected |
+
+### Decision
+
+- **Documented, not built.** [docs/live-control.md](live-control.md) gives the pins (`davinci-resolve-mcp@4.17.0`, `premiere-pro-mcp@1.27.0`, with their tag commits), the install commands of the servers themselves, a chat-app config, and the switches: `PREMIERE_MCP_CAPABILITIES=inspect,edit,export,filesystem` (never `unsafe-script`), no `POSTHOG_API_KEY`, `DAVINCI_RESOLVE_MCP_UPDATE_CHECK=0` / `UPDATE_MODE=never`, stdio only, Resolve safe mode, Premiere's project memory in RAM. This repository contains no server code, no wrapper and no fork.
+- **Which file each NLE gets through its server.** Resolve: the OTIO through `import_timeline_checked` / `import_timeline` (Resolve `ImportTimelineFromFile`). Premiere: the FCP7 XML through `import_fcp_xml`, because premiere-pro-mcp 1.27.0 has no OTIO import tool (its source exports OTIO only, and refuses EDL import by design); the OTIO is imported by hand when wanted. This keeps FCP7 XML a first-class output.
+- **A pin moves only after a re-check** of licence, code-execution tools, telemetry and the import tool at the new tag, recorded on that page.
+- `contract.not_provided` keeps "live control of Premiere Pro or DaVinci Resolve".
+
+### Not decided here
+
+What each NLE keeps on import (roadmap step 8, with the real software), and the agent calling these servers (video-production-agent).
+
+## ADR-005 Media start timecode stays a hand-over to ffmpeg-skill; this skill does not run ffprobe
+
+Checked 2026-10-31 against ffmpeg-skill 2.24 `scripts/_common/probe.py`, Velisa `ecosystem.json`, `docs/ecosystem/ROADMAP.md`, `docs/DEPENDENCY_GRAPH.md` and `docs/CAPABILITY_MATRIX.md`, and ingest-skill `src/ingest_skill/core.py` (all read only).
+
+### Question
+
+ffmpeg-skill `probe` does not report a media file's start timecode (it keeps six format tags, not `timecode`). Could nle-bridge call ffprobe itself to read the `timecode` tag, the way qc-skill and media-analysis-skill call ffprobe directly?
+
+### Findings
+
+- **This skill's own contract and ADR-003** say ffmpeg-skill `probe` is the only media boundary: `not_provided` lists "running ffmpeg or ffprobe directly (only through ffmpeg-skill)".
+- **Ownership.** `ecosystem.json` gives "FFmpeg実行" (FFmpeg execution) to ffmpeg-skill, "メディア計測" (media measurement) to media-analysis-skill and "素材台帳" (the clip inventory) to ingest-skill; nle-bridge owns only "NLE連携". This roadmap's rule is that work outside the owned list is handed over, not re-implemented.
+- **The precedent is a known wart, not a licence.** qc-skill and media-analysis-skill do call the binaries directly, but Velisa's `CAPABILITY_MATRIX.md` and `DEPENDENCY_GRAPH.md` record that as a capability collision and silent duplication to be made visible, not as the pattern for new skills.
+- **ffmpeg-skill is treated as complete** (Velisa ROADMAP): no change there from this repository.
+- **The fact is already measured elsewhere.** ingest-skill's inventory records `timecode` per clip when ffprobe is installed.
+
+### Decision
+
+- **Not allowed: no ffprobe call here.** Step 12 stays open.
+- **Hand-over written:** [docs/handover-media-start-timecode.md](handover-media-start-timecode.md) states the field ffmpeg-skill `probe` would add, its tests, and the small change here once it exists.
+- **Meanwhile** the plan carries it (`assets.*.start_timecode`, `drop_frame`); the agent can copy it from ingest-skill's inventory. Without it the media starts at 00:00:00:00 and the relink manifest says the start timecode is not known (unchanged from ADR-001).
