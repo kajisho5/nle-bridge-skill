@@ -89,7 +89,7 @@ Generating music, measuring beats (ffmpeg-skill `scenes --beats`), and moving cu
 ### Follow-ups
 
 - The agent side: read `diff` and `--timeline-out` as a new plan version (video-production-agent, its adapter step).
-- Premiere's per-channel audio tracks (a stereo clip as two linked clips on A1 and A2) pair track by track and show A2 as added. Folding linked channel clips back into one is a later refinement.
+- Premiere's per-channel audio tracks (a stereo clip as two linked clips on A1 and A2) pair track by track and show A2 as added. Folding linked channel clips back into one is a later refinement. Done: ADR-007.
 
 ## ADR-004 Live control: reuse two pinned community MCP servers, eval tools off, no code taken
 
@@ -169,3 +169,21 @@ Checked 2026-10-31 against ffmpeg-skill 2.24 `scripts/_common/timeline.py` (read
 ### Not decided here
 
 What Premiere and Resolve make of each form on import, odd-length centring included (step 8).
+
+## ADR-007 Premiere stereo pairs: fold exact per-channel copies in the round trip
+
+### Requirements
+
+Premiere writes one audio track per channel: a stereo clip goes out to FCP7 XML (and OTIO) as two linked clipitems, the same media and the same ranges, on A1 and A2 (`sourcetrack/trackindex` 1 and 2), and a CMX 3600 export as an `AA` event. The plan has one clip per stereo source (ADR-003), so the round trip reported the A2 copy as added and shifted every later audio track by one in the track-by-track pairing (the music bed on A3 met the plan's second audio track and came back as removed + added). Both copies also carried the plan id in their master comment, which made the returned timeline invalid (one id twice).
+
+### Decision
+
+- **Ids.** The OTIO and FCP7 readers keep every returned id unique: the second clip carrying an id becomes `<id>@<track>` (the EDL reader already did this).
+- **Fold, before the pairing, on the returned side only.** A returned audio clip that repeats one on an earlier audio track exactly (same media; same source in / out and record in / out) is a channel copy and is folded into it. Exactness is the test, not the FCP7 `<link>` element, so OTIO and EDL returns fold the same way and nothing format-specific is trusted. The kept clip names its `channel_tracks` (`["A1", "A2"]`) and each folded clip is listed in `channels_folded` (`summary.channel_clips_folded`).
+- **Unless the plan has it.** When the plan's audio track at that position has the same clip itself (dual mono written on purpose), it is not folded: it is compared like any clip.
+- **Track pairing after the fold.** A track emptied by the fold is dropped, so the next audio track pairs with the plan's next one (A3 with the plan's second audio track). A channel track with clips left over, that is a copy the editor changed on its own (one channel trimmed), leaves the pairing too; each leftover is reported as added with `channel_of` the track it repeats, never hidden.
+- **`--timeline-out`** writes the folded timeline (one clip per stereo source, leftovers kept on their track), the shape the plan has.
+
+### Not decided here
+
+A real Premiere export as a fixture (step 8). Folding more than two channels works the same way (each later exact copy folds into the first), but a 5.1 layout has not been seen from a real NLE.

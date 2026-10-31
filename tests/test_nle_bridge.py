@@ -726,6 +726,65 @@ class DissolveTests(TmpCase):
         self.assertFalse([w for w in res["warnings"] if w["code"].startswith("TRANSITION")])
 
 
+# ------------------------------------------------------------------------------------------------ stereo pairs
+def premiere_channels(xml):
+    """What Premiere does to a stereo clip in FCP7 XML: one audio track per channel. The first audio track is
+    repeated as a second one (channel 2), each clipitem a linked copy carrying the same master comment."""
+    head, rest = xml.split("<numOutputChannels>2</numOutputChannels>\n", 1)
+    i = rest.index("        <track>")
+    j = rest.index("        </track>\n", i) + len("        </track>\n")
+    ch2 = rest[i:j].replace("<trackindex>1</trackindex>", "<trackindex>2</trackindex>").replace('clipitem id="clipitem-', 'clipitem id="ch2-')
+    return head + "<numOutputChannels>2</numOutputChannels>\n" + rest[:j] + ch2 + rest[j:]
+
+
+class StereoPairTests(TmpCase):
+    def test_premiere_channel_tracks_fold_into_one_clip(self):
+        plan_path, files, _ = self.export(sample_plan("25"), "fcp7")
+        ret = self.write("premiere.xml", premiere_channels(Path(files["fcp7"]).read_text(encoding="utf-8")))
+        self.assertEqual([t["name"] for t in load(ret)["tracks"] if t["kind"] == "audio"], ["A1", "A2", "A3"])
+        v2 = os.path.join(self.tmp, "v2.json")
+        code, d, raw = run_cli("diff", plan_path, ret, "--json", "--timeline-out", v2)
+        self.assertEqual(code, 0, raw)
+        s = d["summary"]
+        self.assertEqual((s["clips_added"], s["clips_removed"], s["clips_changed"], s["channel_clips_folded"]), (0, 0, 0, 2))
+        self.assertTrue(s["identical"])
+        self.assertEqual([(f["track"], f["into_track"], f["returned_id"]) for f in d["channels_folded"]],
+                         [("A2", "A1", "c1a@A2"), ("A2", "A1", "c2a@A2")])
+        c1a = next(c for c in d["clips"] if c["plan_id"] == "c1a")
+        self.assertEqual(c1a["channel_tracks"], ["A1", "A2"])
+        mus = next(c for c in d["clips"] if c["plan_id"] == "mus")  # the music bed, now on A3, pairs with the plan's
+        self.assertEqual(mus["status"], "unchanged")
+        got = load(v2)
+        self.assertEqual([len(t["items"]) for t in got["tracks"] if t["kind"] == "audio"], [2, 1])
+
+    def test_edl_aa_event_folds(self):
+        p = sample_plan("25")
+        p["tracks"].pop()  # no music bed: A2 is free for the second channel
+        plan_path, files, _ = self.export(p, "edl")
+        text = Path(files["edl"]).read_text(encoding="utf-8")
+        line = next(x for x in text.splitlines() if x.startswith("002  AX       A     C"))
+        text = text.replace(line, line.replace("A     C", "AA    C"))  # c1a on both channels
+        code, d, raw = run_cli("diff", plan_path, self.write("aa.edl", text), "--json")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual((d["summary"]["channel_clips_folded"], d["summary"]["identical"]), (1, True))
+
+    def test_a_planned_copy_and_an_edited_copy_are_not_folded(self):
+        p = sample_plan("25")
+        p["tracks"].insert(2, {"kind": "audio", "name": "A2", "items": [{"id": "c1b", "asset": "a", "in": 1, "out": 5}]})
+        plan_path, files, _ = self.export(p, "fcp7")
+        d = diff(load(plan_path), load(files["fcp7"]))
+        self.assertEqual((d["summary"]["channel_clips_folded"], d["summary"]["identical"]), (0, True))
+        # a channel copy the editor trimmed alone is no longer a copy: it shows as added, never hidden
+        plan_path, files, _ = self.export(sample_plan("25"), "fcp7")
+        xml = premiere_channels(Path(files["fcp7"]).read_text(encoding="utf-8"))
+        k = xml.index('clipitem id="ch2-')
+        xml = xml[:k] + xml[k:].replace("<start>0</start>\n            <end>100</end>", "<start>0</start>\n            <end>95</end>", 1)
+        d = diff(load(plan_path), load(self.write("moved.xml", xml)))
+        self.assertEqual((d["summary"]["channel_clips_folded"], d["summary"]["clips_added"]), (1, 1))
+        self.assertEqual([(x["returned_id"], x["channel_of"], x["frames"]) for x in d["added"]], [("c1a@A2", "A1", 95)])
+        self.assertEqual(next(c for c in d["clips"] if c["plan_id"] == "mus")["status"], "unchanged")
+
+
 # ------------------------------------------------------------------------------------------------ inputs
 def agent_ir(media_dir):
     return {"schema_version": "1.0", "project": {"id": "talk"},

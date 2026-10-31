@@ -22,7 +22,7 @@ from fractions import Fraction
 from typing import Any, Dict, List, Optional, Tuple
 
 from .model import (DEFAULT_MARKER_COLOR, MARKER_COLORS, NleBridgeError, asset_start_frames, base_name, path_to_url,
-                    rate_of, start_frames, url_to_path, warning)
+                    rate_of, start_frames, unique_id, url_to_path, warning)
 from .timecode import frames_to_timecode, parse_rate, rate_str, seconds_to_frames
 from .transitions import AUDIO_NAME, VIDEO_NAME
 
@@ -156,6 +156,7 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
     assets: Dict[str, Dict[str, Any]] = {}
     by_url: Dict[str, str] = {}
     tracks: List[Dict[str, Any]] = []
+    seen_ids: set = set()
     for t in stack.get("children") or []:
         if _schema(t) != "Track":
             warns.append(warning("NESTED_NOT_IMPORTED", f"a {_schema(t)} directly under the stack is not read", fmt="otio"))
@@ -191,7 +192,7 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
                 if c.get("media_references") else c.get("media_reference")
             ref = ref or {}
             cmeta = ((c.get("metadata") or {}).get(META) or {})
-            iid = str(cmeta.get("id") or f"{t.get('name') or kind}-{ci + 1}")
+            iid = unique_id(str(cmeta.get("id") or f"{t.get('name') or kind}-{ci + 1}"), str(t.get("name") or kind), seen_ids)
             for e in c.get("effects") or []:
                 if _schema(e) in ("LinearTimeWarp", "FreezeFrame", "TimeEffect"):
                     warns.append(warning("SPEED_NOT_IMPORTED", f"{c.get('name')}: speed change "
