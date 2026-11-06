@@ -70,3 +70,36 @@ jobs:
         env:
           FFMPEG_SKILL_DIR: ${{ github.workspace }}/ffmpeg-skill
         run: nle-bridge doctor --json
+
+  auto-editor-fixtures:
+    # The committed auto-editor fixtures (roadmap step 13, docs/decisions.md ADR-009) are what auto-editor 29.3.1
+    # writes: regenerate them with that release's binary (sha256 pinned) and require the same bytes. nle-bridge
+    # itself never runs auto-editor; the unit jobs read the committed files.
+    runs-on: ubuntu-24.04
+    env:
+      AUTO_EDITOR_VERSION: "29.3.1"
+      AUTO_EDITOR_SHA256: ""
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && ffmpeg -version | head -1
+      - name: auto-editor ${{ env.AUTO_EDITOR_VERSION }} (release binary, sha256 checked)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/auto-editor" \
+            "https://github.com/WyattBlue/auto-editor/releases/download/${AUTO_EDITOR_VERSION}/auto-editor-linux-x86_64"
+          sha256sum "$RUNNER_TEMP/auto-editor"
+          if [ -n "$AUTO_EDITOR_SHA256" ]; then echo "$AUTO_EDITOR_SHA256  $RUNNER_TEMP/auto-editor" | sha256sum -c -; fi
+          chmod +x "$RUNNER_TEMP/auto-editor"
+      - name: Regenerate the fixtures
+        run: |
+          mkdir -p "$RUNNER_TEMP/fixtures"
+          AUTO_EDITOR="$RUNNER_TEMP/auto-editor" tests/fixtures/auto-editor/make_fixtures.sh "$RUNNER_TEMP/fixtures"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto-editor-fixtures
+          path: ${{ runner.temp }}/fixtures
+      - name: Same bytes as the committed fixtures
+        run: |
+          for f in "$RUNNER_TEMP"/fixtures/*; do
+            cmp "$f" "tests/fixtures/auto-editor/$(basename "$f")"
+          done
