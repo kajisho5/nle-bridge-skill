@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .model import (DEFAULT_MARKER_COLOR, MARKER_COLORS, NleBridgeError, asset_start_frames, base_name, path_to_url,
                     rate_of, start_frames, unique_id, url_to_path, warning)
 from .timecode import frames_to_timecode, parse_rate, rate_str, seconds_to_frames
+from .multicam import angle_span, multicam_length
 from .transitions import AUDIO_NAME, VIDEO_NAME
 
 META = "nle_bridge"
@@ -47,6 +48,9 @@ def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = N
     rate = rate_of(tl)
     dissolves = dissolves or {}
     warns: List[Dict[str, Any]] = []
+    mc = tl.get("multicam") or {}
+    angles = {a["angle"]: a for a in mc.get("angles") or []}
+    mc_len = multicam_length(tl) if angles else 0
     tracks = []
     for t in tl["tracks"]:
         children: List[Dict[str, Any]] = []
@@ -73,18 +77,13 @@ def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = N
                                  "name": VIDEO_NAME if t["kind"] == "video" else AUDIO_NAME,
                                  "transition_type": "SMPTE_Dissolve",
                                  "in_offset": _rt(dz["before"], rate), "out_offset": _rt(dz["after"], rate)})
-            a = tl["assets"][it["asset"]]
-            base = asset_start_frames(a, rate)
-            media_ref: Dict[str, Any] = {"OTIO_SCHEMA": "ExternalReference.1", "metadata": {META: {"asset": it["asset"]}},
-                                         "name": a["name"], "available_range": None,
-                                         "available_image_bounds": None, "target_url": path_to_url(a["path"], localhost=False)}
-            if a.get("duration_frames"):
-                media_ref["available_range"] = _range(base, a["duration_frames"], rate)
-            children.append({"OTIO_SCHEMA": "Clip.2", "metadata": {META: meta}, "name": it["name"],
-                             "source_range": _range(base + it["source_in"], length, rate),
-                             "effects": [], "markers": [], "enabled": bool(it.get("enabled", True)),
-                             "media_references": {"DEFAULT_MEDIA": media_ref},
-                             "active_media_reference_key": "DEFAULT_MEDIA"})
+            ang = it.get("multicam", {}).get("angle") if t["kind"] == "video" else None
+            if ang in angles:  # a cut of a multicam: a Stack of the angles, each at its sync offset
+                meta["multicam"] = {"group": mc["id"], "angle": ang}
+                children.append(_multicam_stack(tl, mc, mc_len, it, meta, length, rate))
+            else:
+                children.append(_clip(tl, it["asset"], it["name"], it["source_in"], length, meta,
+                                      bool(it.get("enabled", True)), rate))
             pos = it["record_out"]
         tracks.append({"OTIO_SCHEMA": "Track.1", "metadata": {}, "name": t["name"], "source_range": None,
                        "effects": [], "markers": [], "enabled": True, "children": children,
@@ -99,6 +98,41 @@ def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = N
            "tracks": {"OTIO_SCHEMA": "Stack.1", "metadata": {}, "name": "tracks", "source_range": None,
                       "effects": [], "markers": markers, "enabled": True, "children": tracks}}
     return json.dumps(doc, indent=4, ensure_ascii=False) + "\n", warns
+
+
+def _clip(tl: Dict[str, Any], aid: str, name: str, source_in: int, length: int, meta: Dict[str, Any], enabled: bool,
+          rate: Fraction) -> Dict[str, Any]:
+    a = tl["assets"][aid]
+    base = asset_start_frames(a, rate)
+    media_ref: Dict[str, Any] = {"OTIO_SCHEMA": "ExternalReference.1", "metadata": {META: {"asset": aid}},
+                                 "name": a["name"], "available_range": None,
+                                 "available_image_bounds": None, "target_url": path_to_url(a["path"], localhost=False)}
+    if a.get("duration_frames"):
+        media_ref["available_range"] = _range(base, a["duration_frames"], rate)
+    return {"OTIO_SCHEMA": "Clip.2", "metadata": {META: meta}, "name": name,
+            "source_range": _range(base + source_in, length, rate), "effects": [], "markers": [], "enabled": enabled,
+            "media_references": {"DEFAULT_MEDIA": media_ref}, "active_media_reference_key": "DEFAULT_MEDIA"}
+
+
+def _multicam_stack(tl: Dict[str, Any], mc: Dict[str, Any], mc_len: int, it: Dict[str, Any], meta: Dict[str, Any],
+                    length: int, rate: Fraction) -> Dict[str, Any]:
+    """One cut of a multicam: a Stack with a track per angle (a gap of the angle's offset, then its file), its
+    source_range the part of the multicam this cut plays; only the angle on screen is enabled, so an OTIO reader that
+    composites the stack shows it (multicam.py)."""
+    off = next(a["offset_frames"] for a in mc["angles"] if a["angle"] == it["multicam"]["angle"])
+    angle_tracks = []
+    for a in mc["angles"]:
+        sp = angle_span(a, tl["assets"][a["asset"]], mc_len)
+        kids = ([_gap(sp["start"], rate)] if sp["start"] else []) + [
+            _clip(tl, a["asset"], tl["assets"][a["asset"]]["name"], sp["in"], sp["end"] - sp["start"],
+                  {"angle": a["angle"], "offset_frames": a["offset_frames"]}, True, rate)]
+        angle_tracks.append({"OTIO_SCHEMA": "Track.1", "metadata": {META: {"angle": a["angle"]}},
+                             "name": tl["assets"][a["asset"]]["name"], "source_range": None, "effects": [],
+                             "markers": [], "enabled": a["angle"] == it["multicam"]["angle"], "children": kids,
+                             "kind": "Video"})
+    return {"OTIO_SCHEMA": "Stack.1", "metadata": {META: dict(meta, multicam_name=mc.get("name"))},
+            "name": it["name"], "source_range": _range(it["source_in"] + off, length, rate), "effects": [],
+            "markers": [], "enabled": bool(it.get("enabled", True)), "children": angle_tracks}
 
 
 # ------------------------------------------------------------------------------------------------ read
@@ -159,6 +193,24 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
     by_url: Dict[str, str] = {}
     tracks: List[Dict[str, Any]] = []
     seen_ids: set = set()
+    multicams: Dict[str, Dict[str, Any]] = {}
+
+    def asset_of(ref: Dict[str, Any], fallback: str) -> str:
+        """The asset id of a media reference, registered the first time its file is seen."""
+        url = str(ref.get("target_url") or "")
+        path = url_to_path(url) if url else ""
+        key = path or fallback
+        if key not in by_url:
+            aid = str(((ref.get("metadata") or {}).get(META) or {}).get("asset") or f"m{len(by_url) + 1}")
+            while aid in assets:
+                aid += "_"
+            by_url[key] = aid
+            avail = ref.get("available_range")
+            assets[aid] = {"path": path or key, "name": ref.get("name") or base_name(path) or fallback,
+                           "start_frame": _frames(avail.get("start_time"), r) if avail else 0,
+                           "duration_frames": _frames(avail.get("duration"), r) if avail else None}
+        return by_url[key]
+
     for t in stack.get("children") or []:
         if _schema(t) != "Track":
             warns.append(warning("NESTED_NOT_IMPORTED", f"a {_schema(t)} directly under the stack is not read", fmt="otio"))
@@ -185,6 +237,24 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
             if sch == "Gap":
                 pos += dur
                 continue
+            cmeta = ((c.get("metadata") or {}).get(META) or {})
+            if sch == "Stack" and isinstance(cmeta.get("multicam"), dict) and kind == "video":
+                found = _multicam_angles(c, cmeta, r, asset_of)
+                if found:  # a cut of a multicam (multicam.py): the angle on screen is read as a clip of its file
+                    group, layout, on = found
+                    if group not in multicams:
+                        multicams[group] = {"id": group, "name": cmeta.get("multicam_name") or group, "angles": layout}
+                    elif [(a["angle"], a["offset_frames"]) for a in multicams[group]["angles"]] != \
+                            [(a["angle"], a["offset_frames"]) for a in layout]:
+                        warns.append(warning("MULTICAM_ANGLES_DIFFER", f"multicam {group}: the angles of one cut differ "
+                                             "from the first cut's; the first is kept", fmt="otio"))
+                    mc_in = _frames((c.get("source_range") or {}).get("start_time"), r)
+                    c = dict(on["clip"], name=c.get("name"), enabled=c.get("enabled", True),
+                             source_range={"OTIO_SCHEMA": "TimeRange.1", "duration": c["source_range"]["duration"],
+                                           "start_time": _rt(on["clip_start"] + mc_in - on["pos"], r)},
+                             effects=c.get("effects") or [], markers=c.get("markers") or [])
+                    sch = "Clip"
+                    cmeta = dict(cmeta, multicam={"group": group, "angle": on["angle"]})
             if sch != "Clip":
                 warns.append(warning("NESTED_NOT_IMPORTED", f"track {t.get('name')}: a {sch} item is read as a gap",
                                      fmt="otio"))
@@ -193,7 +263,6 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
             ref = (c.get("media_references") or {}).get(c.get("active_media_reference_key") or "DEFAULT_MEDIA") \
                 if c.get("media_references") else c.get("media_reference")
             ref = ref or {}
-            cmeta = ((c.get("metadata") or {}).get(META) or {})
             iid = unique_id(str(cmeta.get("id") or f"{t.get('name') or kind}-{ci + 1}"), str(t.get("name") or kind), seen_ids)
             for e in c.get("effects") or []:
                 if _schema(e) in ("LinearTimeWarp", "FreezeFrame", "TimeEffect"):
@@ -211,19 +280,7 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
                                          fmt="otio"))
                 pos += dur
                 continue
-            url = str(ref.get("target_url") or "")
-            path = url_to_path(url) if url else ""
-            key = path or str(c.get("name") or iid)
-            if key not in by_url:
-                aid = str(((ref.get("metadata") or {}).get(META) or {}).get("asset") or f"m{len(by_url) + 1}")
-                while aid in assets:
-                    aid += "_"
-                by_url[key] = aid
-                avail = ref.get("available_range")
-                assets[aid] = {"path": path or key, "name": ref.get("name") or base_name(path) or c.get("name"),
-                               "start_frame": _frames(avail.get("start_time"), r) if avail else 0,
-                               "duration_frames": _frames(avail.get("duration"), r) if avail else None}
-            aid = by_url[key]
+            aid = asset_of(ref, str(c.get("name") or iid))
             start = _frames(c["source_range"]["start_time"], r) - assets[aid]["start_frame"]
             if start < 0:
                 start = _frames(c["source_range"]["start_time"], r)
@@ -232,6 +289,7 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
                           "enabled": bool(c.get("enabled", True)),
                           **({"gain_db": cmeta["gain_db"]} if cmeta.get("gain_db") is not None else {}),
                           **({"layer": cmeta["layer"]} if isinstance(cmeta.get("layer"), dict) else {}),
+                          **({"multicam": cmeta["multicam"]} if isinstance(cmeta.get("multicam"), dict) else {}),
                           **({"transition_in": tr_in} if tr_in and tr_in["frames"] > 0 else {})})
             for m in c.get("markers") or []:
                 mr = m.get("marked_range") or {}
@@ -250,9 +308,54 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
         out_assets[aid] = {"path": a["path"], "name": a["name"], "duration_frames": a["duration_frames"],
                            "start_timecode": frames_to_timecode(a["start_frame"], r, False) if a["start_frame"] else None}
     start_tc = meta.get("start_timecode") or frames_to_timecode(gst, r, drop)
-    return {"name": str(doc.get("name") or name_hint), "rate": rate_str(r), "drop_frame": drop,
+    extra: Dict[str, Any] = {}
+    if multicams:
+        if len(multicams) > 1:
+            warns.append(warning("MULTICAM_NOT_IMPORTED", f"{len(multicams)} multicams: only the first one's angles are "
+                                 "kept on the timeline (each cut still plays its angle's file)", fmt="otio"))
+        extra["multicam"] = next(iter(multicams.values()))
+    return {**extra, "name": str(doc.get("name") or name_hint), "rate": rate_str(r), "drop_frame": drop,
             "start_timecode": start_tc, "assets": out_assets, "tracks": tracks, "markers": markers,
             "warnings": warns, "source": {"format": "otio"}}
+
+
+def _ref(c: Dict[str, Any]) -> Dict[str, Any]:
+    ref = (c.get("media_references") or {}).get(c.get("active_media_reference_key") or "DEFAULT_MEDIA") \
+        if c.get("media_references") else c.get("media_reference")
+    return ref or {}
+
+
+def _multicam_angles(st: Dict[str, Any], smeta: Dict[str, Any], r: Fraction, asset_of):
+    """A multicam Stack -> (group, angles [{angle, asset, name, offset_frames}], the angle on screen with its clip,
+    position and source start), or None when no angle holds a clip."""
+    group = str(smeta["multicam"].get("group") or "mc1")
+    want = smeta["multicam"].get("angle")
+    layout, found = [], []
+    for k, tr in enumerate(st.get("children") or []):
+        if _schema(tr) != "Track":
+            continue
+        tmeta = ((tr.get("metadata") or {}).get(META) or {})
+        ang = tmeta.get("angle", k)
+        pos = 0
+        for ch in tr.get("children") or []:
+            sr = ch.get("source_range") or {}
+            if _schema(ch) == "Clip":
+                ref = _ref(ch)
+                aid = asset_of(ref, str(ch.get("name") or f"angle-{k}"))
+                avail = ref.get("available_range")
+                base = _frames(avail.get("start_time"), r) if avail else 0
+                start = _frames(sr.get("start_time"), r)
+                in_point = start - base if start >= base else start
+                entry = {"angle": ang, "asset": aid, "name": str(tr.get("name") or ch.get("name") or ""),
+                         "offset_frames": pos - in_point}
+                layout.append(entry)
+                found.append(dict(entry, clip=ch, pos=pos, clip_start=start))
+                break
+            pos += _frames(sr.get("duration"), r)
+    if not found:
+        return None
+    on = next((f for f in found if f["angle"] == want), found[0])
+    return group, layout, on
 
 
 def _marker(m: Dict[str, Any], at: int, r: Fraction) -> Dict[str, Any]:

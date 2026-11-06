@@ -20,7 +20,8 @@ CONTRACT_VERSION = "1.0"
 LOSS_CODES = ("SPEED_NOT_EXPORTED", "EFFECT_NOT_EXPORTED", "TITLE_NOT_EXPORTED", "TRANSITION_NOT_EXPORTED",
               "TRACK_NOT_EXPORTED", "LEVEL_NOT_EXPORTED", "LEVEL_METADATA_ONLY", "MARKER_COLOR_NOT_EXPORTED",
               "MARKER_DURATION_NOT_EXPORTED", "CAPTIONS_NOT_EXPORTED", "NOT_IN_TIMELINE",
-              "TRANSITION_AS_DISSOLVE", "TRANSITION_OFF_CENTRE")
+              "TRANSITION_AS_DISSOLVE", "TRANSITION_OFF_CENTRE", "MULTICAM_NOT_EXPORTED", "MULTICAM_DRIFT_NOT_EXPORTED",
+              "LAYER_POSITION_NOT_EXPORTED")
 # Warning codes about the media's start timecode (the plan's value and the probe's): not a loss, so not --strict.
 TIMECODE_CODES = ("START_TIMECODE_MISMATCH", "START_TIMECODE_UNREADABLE")
 
@@ -133,7 +134,8 @@ def contract() -> Dict[str, Any]:
         "default_formats": list(DEFAULT_FORMATS),
         "inputs": [TIMELINE_SCHEMA, "video-production-agent project IR (delivery.timelines[], ADR-052)",
                    f"{LAYERS_SCHEMA} graphics layer manifests (a plan's `layers`)",
-                   "ffmpeg-skill render project (clips[].src)", "OTIO JSON", "FCP7 XML", "CMX 3600 EDL (with --fps)"],
+                   "ffmpeg-skill render project (clips[].src)",
+                   "ffmpeg-skill multicam result (multicam.py --json: inputs, offsets_seconds, cuts)", "OTIO JSON", "FCP7 XML", "CMX 3600 EDL (with --fps)"],
         "timeline": {"schema": TIMELINE_SCHEMA, "units": "whole frames at an exact rational rate",
                      "default_start_timecode": DEFAULT_START_TC, "marker_colors": list(MARKER_COLORS),
                      "frame_rates": "any; NTSC as exact N/1001; drop-frame at 29.97 and 59.94 only"},
@@ -160,6 +162,18 @@ def contract() -> Dict[str, Any]:
                    "conform": "each layer file is in relink.json (with `layer`) and copied with --copy-media; "
                               "manifest.json lists the layers",
                    "diff": "`layers`: each layer's clip pair (or removed), `summary.layers_changed`"},
+        "multicam": {"input": "ffmpeg-skill multicam.py --json (inputs, offsets_seconds, confidence, cuts, drift_ppm)",
+                     "timeline": "V1: the switch list, each cut marked {group, angle}; A1: camera 0's sound; "
+                                 "`multicam`: the angles with their sync offsets in frames",
+                     "fcp7": "each cut a clipitem holding the multiclip (one angle per camera, its file placed at the "
+                             "offset; the angle on screen activevideoangle TRUE); not read by opentimelineio's FCP7 "
+                             "adapter, no NLE import checked yet (MULTICAM_AS_MULTICLIP)",
+                     "otio": "each cut a Stack with one track per angle (a gap of the offset, then the file), only the "
+                             "angle on screen enabled",
+                     "edl": "the switched cut as plain clips (MULTICAM_NOT_EXPORTED)",
+                     "not_carried": ["clock drift correction (MULTICAM_DRIFT_NOT_EXPORTED)",
+                                     "which source the sound came from (camera 0 is assumed: MULTICAM_AUDIO_ASSUMED)"],
+                     "diff": "`multicam`: each angle's offset, plan and returned; `angle_switches`"},
         "diff": {"schema": DIFF_SCHEMA, "provenance": "OBSERVED",
                  "beat_offset": "signed frames from the nearest beat (positive: the cut is after it)"},
         "warnings": {"loss_codes": list(LOSS_CODES), "strict": "--strict exits 5 (CONTENT_NOT_EXPORTED) before writing",

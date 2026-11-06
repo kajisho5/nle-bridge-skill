@@ -1,0 +1,12 @@
+{
+  "status": "completed",
+  "output": "talk_multicam.mp4",
+  "dry_run": false,
+  "commands": [],
+  "verified": true,
+  "verification": [{"step": "probe", "ok": true}],
+  "inputs": ["camA.mp4", "camB.mp4"],
+  "offsets_seconds": [0.0, 1.2],
+  "confidence": [1.0, 0.874],
+  "cuts": [[0.0, 2.0, 0], [2.0, 4.5, 1], [4.5, 6.0, 0], [6.0, 8.0, 1]]
+}
