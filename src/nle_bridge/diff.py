@@ -337,6 +337,8 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
     markers = _diff_markers(orig["markers"], ret["markers"], otc, rtc, carries_color)
     changed = sum(1 for c in clips_out if c["status"] == "changed")
     layers = _layers(orig, clips_out, removed_out)
+    multicam = _multicam(orig, ret, amap, removed_out, added_out, ot_items={o["id"]: o for t in orig["tracks"] for o in t["items"]},
+                         rt_items={r["id"]: r for t in ret["tracks"] for r in t["items"]})
     return {"schema": DIFF_SCHEMA, "plan": summary(orig), "returned": dict(summary(ret), file=returned_path),
             "media": {"matched": {rid: aid for rid, aid in amap.items() if aid},
                       "new": [{"returned_asset": rid, "path": ret["assets"][rid]["path"]} for rid in new_media]},
@@ -355,8 +357,38 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                                           or markers["changed"] or r_end != o_end)},
             "clips": clips_out, "added": added_out, "removed": removed_out, "cuts": cuts, "markers": markers,
             "channels_folded": [dict(f, record_in=rtc(f["record_in"]), record_out=rtc(f["record_out"])) for f in folded],
-            "layers": layers, "beats": beats_summary, "not_compared": not_compared,
+            "layers": layers, "multicam": multicam, "beats": beats_summary, "not_compared": not_compared,
             "not_imported": ret.get("warnings") or []}
+
+
+def _multicam(orig: Dict[str, Any], ret: Dict[str, Any], amap: Dict[str, Optional[str]], removed_out: List[Dict[str, Any]],
+              added_out: List[Dict[str, Any]], ot_items: Dict[str, Any], rt_items: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The plan's multicam (multicam.py) against the returned one: each angle's sync offset in frames, and the cuts
+    where the editor switched to another angle (a removed plan cut and an added one over the same record range)."""
+    mc = orig.get("multicam")
+    if not mc:
+        return None
+    rmc = ret.get("multicam") or {}
+    r_by_asset = {amap.get(a["asset"]): a for a in rmc.get("angles") or []}
+    angles = []
+    for a in mc["angles"]:
+        ra = r_by_asset.get(a["asset"])
+        angles.append({"angle": a["angle"], "asset": a["asset"], "name": a.get("name"), "plan_offset_frames": a["offset_frames"],
+                       "returned_offset_frames": ra["offset_frames"] if ra else None,
+                       "match": bool(ra) and ra["offset_frames"] == a["offset_frames"]})
+    switches = []
+    for rm in removed_out:
+        o = ot_items.get(rm["plan_id"])
+        if not (o and o.get("multicam")):
+            continue
+        for ad in added_out:
+            r = rt_items.get(ad["returned_id"])
+            if r and r.get("multicam") and ad["track"] == rm["track"] and (r["record_in"], r["record_out"]) == \
+                    (o["record_in"], o["record_out"]):
+                switches.append({"plan_id": o["id"], "record_in": rm["record_in"], "record_out": rm["record_out"],
+                                 "plan_angle": o["multicam"]["angle"], "returned_angle": r["multicam"]["angle"]})
+    return {"id": mc["id"], "name": mc.get("name"), "returned_has_multicam": bool(rmc), "angles": angles,
+            "offsets_match": bool(rmc) and all(a["match"] for a in angles), "angle_switches": switches}
 
 
 def _layers(orig: Dict[str, Any], clips_out: List[Dict[str, Any]], removed_out: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -441,6 +473,9 @@ def as_plan(orig: Dict[str, Any], ret: Dict[str, Any], returned_path: Optional[s
     out = dict(ret, assets=assets, tracks=tracks, name=orig["name"],
                source={"format": (ret.get("source") or {}).get("format"), "derived_from": orig["name"],
                        "returned_file": returned_path, "provenance": "EDITOR"})
+    if ret.get("multicam"):  # the angles named by the plan's asset ids, as the clips are
+        out["multicam"] = dict(ret["multicam"], angles=[dict(a, asset=rename.get(a["asset"], a["asset"]))
+                                                        for a in ret["multicam"]["angles"]])
     out.pop("warnings", None)
     out["warnings"] = []
     return out

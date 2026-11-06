@@ -32,6 +32,7 @@ from xml.sax.saxutils import escape
 from .model import (DEFAULT_MARKER_COLOR, NleBridgeError, asset_start_frames, base_name, path_to_url, rate_of,
                     start_frames, total_frames, unique_id, url_to_path, warning)
 from .timecode import DROP_FRAME_RATES, frames_to_timecode, is_ntsc, nominal, rate_str
+from .multicam import angle_span, multicam_length
 from .transitions import AUDIO_NAME, VIDEO_NAME, is_dissolve, tails
 
 _GRID_NAME = re.compile(r"^(Bar \d+|Beat \d+\.\d+)$")
@@ -133,6 +134,37 @@ def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = N
         parts += media + [f"{ind}</file>"]
         return "\n".join(parts)
 
+    mc = tl.get("multicam") or {}
+    angles = {a["angle"]: a for a in mc.get("angles") or []}
+    mc_len = multicam_length(tl) if angles else 0
+
+    def multiclip_xml(it: Dict[str, Any], n: int, ind: str) -> str:
+        """The multiclip, its angle on screen active; each angle a clip placing its file at its sync offset."""
+        active = it["multicam"]["angle"]
+        out = [f'{ind}<multiclip id="multiclip-{_q(mc["id"])}">', f"{ind}  <name>{_q(mc.get('name') or mc['id'])}</name>",
+               f"{ind}  <collapsed>FALSE</collapsed>", f"{ind}  <synctype>0</synctype>"]
+        for k, ang in enumerate(mc["angles"]):
+            a = tl["assets"][ang["asset"]]
+            sp = angle_span(ang, a, mc_len)
+            cid = f"multiclip-{_q(mc['id'])}-{n}-angle-{k + 1}"
+            out += [f"{ind}  <angle>",
+                    f"{ind}    <activevideoangle>{'TRUE' if ang['angle'] == active else 'FALSE'}</activevideoangle>",
+                    f'{ind}    <clip id="{cid}">', f"{ind}      <name>{_q(a['name'])}</name>",
+                    f"{ind}      <duration>{mc_len}</duration>", _rate_xml(rate, ind + "      "),
+                    f"{ind}      <in>0</in>", f"{ind}      <out>{mc_len}</out>",
+                    f"{ind}      <media>", f"{ind}        <video>", f"{ind}          <track>",
+                    f'{ind}            <clipitem id="{cid}-clip">', f"{ind}              <name>{_q(a['name'])}</name>",
+                    f"{ind}              <duration>{a.get('duration_frames') or sp['in'] + sp['end'] - sp['start']}</duration>",
+                    _rate_xml(rate, ind + "              "),
+                    f"{ind}              <start>{sp['start']}</start>", f"{ind}              <end>{sp['end']}</end>",
+                    f"{ind}              <in>{sp['in']}</in>",
+                    f"{ind}              <out>{sp['in'] + sp['end'] - sp['start']}</out>",
+                    file_xml(ang["asset"], ind + "              "), f"{ind}            </clipitem>",
+                    f"{ind}          </track>", f"{ind}        </video>", f"{ind}      </media>", f"{ind}    </clip>",
+                    f"{ind}  </angle>"]
+        out.append(f"{ind}</multiclip>")
+        return "\n".join(out)
+
     def clipitem(it: Dict[str, Any], n: int, kind: str, ind: str, track_index: int) -> str:
         a = tl["assets"][it["asset"]]
         dur = a.get("duration_frames") or it["source_out"]
@@ -142,12 +174,17 @@ def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = N
         end = -1 if tail else it["record_out"]
         s_in = it["source_in"] - (head["before"] if head else 0)
         s_out = it["source_in"] + it["record_out"] - it["record_in"] + (tail["after"] if tail else 0)
-        lines = [f'{ind}<clipitem id="clipitem-{n}">', f"{ind}  <masterclipid>masterclip-{file_ids[it['asset']][5:]}</masterclipid>",
-                 f"{ind}  <name>{_q(it['name'])}</name>", f"{ind}  <enabled>{'TRUE' if it.get('enabled', True) else 'FALSE'}</enabled>",
-                 f"{ind}  <duration>{dur}</duration>", _rate_xml(rate, ind + "  "),
-                 f"{ind}  <start>{start}</start>", f"{ind}  <end>{end}</end>",
-                 f"{ind}  <in>{s_in}</in>", f"{ind}  <out>{s_out}</out>",
-                 file_xml(it["asset"], ind + "  ")]
+        multi = kind == "video" and it.get("multicam", {}).get("angle") in angles
+        if multi:  # in / out on the multiclip's timebase: the angle's offset added
+            off = angles[it["multicam"]["angle"]]["offset_frames"]
+            s_in, s_out, dur = s_in + off, s_out + off, mc_len
+        lines = [f'{ind}<clipitem id="clipitem-{n}">'] + \
+            ([] if multi else [f"{ind}  <masterclipid>masterclip-{file_ids[it['asset']][5:]}</masterclipid>"]) + \
+            [f"{ind}  <name>{_q(it['name'])}</name>", f"{ind}  <enabled>{'TRUE' if it.get('enabled', True) else 'FALSE'}</enabled>",
+             f"{ind}  <duration>{dur}</duration>", _rate_xml(rate, ind + "  "),
+             f"{ind}  <start>{start}</start>", f"{ind}  <end>{end}</end>",
+             f"{ind}  <in>{s_in}</in>", f"{ind}  <out>{s_out}</out>",
+             multiclip_xml(it, n, ind + "  ") if multi else file_xml(it["asset"], ind + "  ")]
         if kind == "audio":
             lines.append(f"{ind}  <sourcetrack>\n{ind}    <mediatype>audio</mediatype>\n"
                          f"{ind}    <trackindex>{track_index}</trackindex>\n{ind}  </sourcetrack>")
@@ -189,6 +226,11 @@ def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = N
         out = m["at_frame"] + m["duration_frames"] if m.get("duration_frames") else -1
         markers.append(f"    <marker>\n      <comment>{_q(m.get('comment') or '')}</comment>\n"
                        f"      <name>{_q(m['name'])}</name>\n      <in>{m['at_frame']}</in>\n      <out>{out}</out>\n    </marker>")
+    if angles and any(it.get("multicam") for t in tl["tracks"] if t["kind"] == "video" for it in t["items"]):
+        warns.append(warning("MULTICAM_AS_MULTICLIP", f"the cuts of {mc.get('name') or mc['id']} are written as an FCP7 "
+                             "multiclip (one angle per camera at its sync offset); opentimelineio's FCP7 adapter does not "
+                             "read multiclips and no NLE import of one has been checked (roadmap step 8); the EDL has "
+                             "the switched cut as plain clips", fmt="fcp7"))
     if any(m["color"] != DEFAULT_MARKER_COLOR or m["kind"] != "marker" for m in tl["markers"]):
         warns.append(warning("MARKER_COLOR_NOT_EXPORTED", "FCP7 XML has no marker colour: markers keep their name and "
                              "comment (bar heads are 'Bar N', beats 'Beat N.b'); use the OTIO or EDL for colours",
@@ -277,6 +319,35 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
         file_asset[fid] = aid
         return aid
 
+    multicams: Dict[str, Dict[str, Any]] = {}
+
+    def multiclip(mcel: ET.Element) -> Optional[Dict[str, Any]]:
+        """A clipitem's <multiclip>: its angles (each a clip whose track places a file at the sync offset) and the
+        angle on screen (<activevideoangle>TRUE, else the first). None when no angle holds a file."""
+        mid = (mcel.get("id") or "multiclip").replace("multiclip-", "", 1)
+        angles, active = [], 0
+        for k, ang in enumerate(mcel.findall("angle")):
+            ci = ang.find("clip/media/video/track/clipitem")
+            f = ci.find("file") if ci is not None else None
+            if f is None or not f.get("id"):
+                continue
+            st, i0 = int(float(_txt(ci, "start") or 0)), int(float(_txt(ci, "in") or 0))
+            angles.append({"angle": k, "asset": asset_for(f.get("id")), "offset_frames": st - i0, "_file": f,
+                           "name": _txt(ang, "clip/name") or _txt(ci, "name") or ""})
+            if (_txt(ang, "activevideoangle") or "").upper() == "TRUE":
+                active = k
+        on = next((a for a in angles if a["angle"] == active), angles[0] if angles else None)
+        if on is None:
+            return None
+        layout = [{k: v for k, v in a.items() if k != "_file"} for a in angles]
+        known = multicams.get(mid)
+        if known is None:
+            multicams[mid] = {"id": mid, "name": _txt(mcel, "name") or mid, "angles": layout}
+        elif known["angles"] != layout:
+            warns.append(warning("MULTICAM_ANGLES_DIFFER", f"multiclip {mid}: the angles of one copy differ from the "
+                                 "first copy's (files or sync offsets); the first is kept", fmt="fcp7"))
+        return {"id": mid, "active": on["angle"], "offset_frames": on["offset_frames"], "file": on["_file"]}
+
     tracks: List[Dict[str, Any]] = []
     seen_ids: set = set()
     labels: Dict[Tuple[str, str], List[str]] = {}  # (track, label) -> the clips that carry it
@@ -315,6 +386,10 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
                 if el.tag != "clipitem":
                     continue
                 fe = el.find("file")
+                mcel = el.find("multiclip")
+                mcinfo = multiclip(mcel) if (fe is None and mcel is not None and kind == "video") else None
+                if mcinfo:  # a multiclip: the angle on screen is read as a clip of its file
+                    fe = mcinfo["file"]
                 if fe is None or not fe.get("id"):
                     warns.append(warning("NESTED_NOT_IMPORTED", f"clipitem '{_txt(el, 'name')}' has no file (a nested "
                                          "sequence?) and is not read", fmt="fcp7"))
@@ -338,10 +413,15 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
                 tname = f"{'V' if kind == 'video' else 'A'}{ti + 1}"
                 iid = unique_id(comment[len("nle-bridge:"):] if comment.startswith("nle-bridge:") else
                                 f"{tname}-{len(items) + 1}", tname, seen_ids)
+                if mcinfo:
+                    cin -= mcinfo["offset_frames"]
+                    cout -= mcinfo["offset_frames"]
                 it: Dict[str, Any] = {"id": iid, "kind": "clip", "asset": asset_for(fe.get("id")),
                                       "name": _txt(el, "name") or "", "source_in": cin, "source_out": cin + (e - s),
                                       "record_in": s, "record_out": e,
                                       "enabled": (_txt(el, "enabled") or "TRUE").upper() != "FALSE"}
+                if mcinfo:
+                    it["multicam"] = {"group": mcinfo["id"], "angle": mcinfo["active"]}
                 if head and head["dissolve"] and head["end"] > head["start"]:
                     it["transition_in"] = {"type": "dissolve", "frames": head["end"] - head["start"],
                                            "before": head["cut"] - head["start"]}
@@ -410,7 +490,13 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
                         "kind": ("bar" if name.startswith("Bar ") else "beat") if grid else "marker"})
     w = _txt(media, "video/format/samplecharacteristics/width") if media is not None else None
     h = _txt(media, "video/format/samplecharacteristics/height") if media is not None else None
-    return {"name": _txt(seq, "name") or name_hint, "rate": rate_str(rate), "drop_frame": drop,
+    extra: Dict[str, Any] = {}
+    if multicams:
+        if len(multicams) > 1:
+            warns.append(warning("MULTICAM_NOT_IMPORTED", f"{len(multicams)} multiclips: only the first one's angles "
+                                 "are kept on the timeline (each cut still plays its angle's file)", fmt="fcp7"))
+        extra["multicam"] = next(iter(multicams.values()))
+    return {**extra, "name": _txt(seq, "name") or name_hint, "rate": rate_str(rate), "drop_frame": drop,
             "start_timecode": frames_to_timecode(start, rate, drop), "width": int(w) if w else None,
             "height": int(h) if h else None, "assets": assets, "tracks": [t for t in tracks if t["items"]] or tracks,
             "markers": markers, "warnings": warns, "source": {"format": "fcp7"}}

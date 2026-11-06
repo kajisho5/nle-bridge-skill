@@ -290,3 +290,34 @@ The fixture (`tests/fixtures/layers/`: three manifests, one per producer, a full
 ### Not decided here
 
 The producers' real manifests (their roadmap steps); re-read them when they ship. How Premiere and Resolve place a layer smaller than the frame, and whether they honour a written position (step 8).
+
+## ADR-011 Multicam sources for the editor: ffmpeg-skill's sync result as a multiclip
+
+Checked 2026-11-06 against ffmpeg-skill `scripts/multicam.py` (main `3d44317`, v3.0.0 and v2.24.1: the same `report` and `emit`; read only) and `scripts/_common/emit.py` (the `--json` envelope), and Velisa ROADMAP's third-round row "multicam sources for the editor".
+
+### Requirements
+
+- Roadmap step 15: the ffmpeg-skill multicam sync result (offsets per angle) and the switch list exported as a multicam clip the NLE can re-switch (FCP7 XML multiclip; OTIO as a stack with sync offsets), the agent's switches as the initial cuts.
+- Done when: a two-angle fixture opens as one multiclip whose angles line up at the sync offsets (checked by reading it back).
+- No new CLI flag (`argv` is fatal drift for video-production-agent's pin): the result itself is the input, recognised like the other inputs.
+
+### What ffmpeg-skill gives
+
+`multicam.py cams... --switch ... --json` prints `inputs`, `offsets_seconds` (camera c starts `offset_c` seconds into the reference, camera 0's, timeline: reference time t is source time t - offset_c), `confidence`, `cuts` (`[start, end, camera]` on the reference timeline, the camera actually rendered: a range asked of a camera that had not started already falls back to camera 0 there) and, with `--fix-drift`, `drift_ppm`. `--offsets-only` has no `cuts`. The result does not say which input the sound came from (`--audio`, default 0).
+
+### Decision
+
+- **Input.** A JSON document with `inputs` and `offsets_seconds` is a multicam result (`export`, `conform`, `diff`, `import`). Paths are taken from the result's folder. The rate is `--fps`, else the reference's from ffmpeg-skill `probe`, else the result's output probe. A status other than completed, an offset per input missing, a cut naming an unknown camera or one before its camera starts are refused.
+- **Timeline.** The programme is the reference timeline. V1 is the switch list: each cut a clip of the camera on screen, `multicam: {group, angle}`. A1 is camera 0's sound for the whole programme (`MULTICAM_AUDIO_ASSUMED` says it is assumed). The timeline's `multicam` lists the angles: asset, name, `offset_frames` (seconds rounded to the nearest frame, ties to even), offset seconds, confidence. Drift correction is not carried (`MULTICAM_DRIFT_NOT_EXPORTED`): the angles line up at the start.
+- **FCP7 XML.** Each cut is a clipitem holding the multiclip (`<multiclip id="multiclip-mc1">`, `synctype` 0, one `<angle>` per camera). Each angle is a `<clip>` as long as the multicam whose own track places the camera's file at its offset: start = max(0, offset), in = start - offset (a camera that starts later begins after a gap; one that started earlier begins at its in point). The angle on screen has `<activevideoangle>TRUE`, the others FALSE. The clipitem's in / out are on the multiclip's timebase (the source in plus the angle's offset). The whole multiclip is written in every cut, so each cut states its own angle; inner ids carry the cut's number to stay unique. This follows the xmeml element definitions; opentimelineio's FCP7 adapter refuses multiclips ("Type of clip item is not supported") and no NLE has opened one yet, which `MULTICAM_AS_MULTICLIP` says on every export (not a loss code).
+- **OTIO.** Each cut is a `Stack.1` with one track per angle (a gap of the offset, then the file), `source_range` the part of the multicam played, `metadata.nle_bridge.multicam` the angle on screen; only that angle's track is enabled, so a reader that composites the stack sees it. opentimelineio reads it (nested stacks are core OTIO).
+- **EDL.** The switched cut as plain clips; the angles are `MULTICAM_NOT_EXPORTED`.
+- **Reading back.** Both readers resolve a multiclip / multicam stack to a clip of the active angle's file (source in = multicam in - the angle's offset), keep `multicam` on the item and the angles on the timeline. A copy whose angles differ from the first is `MULTICAM_ANGLES_DIFFER`. `diff` compares the cuts as clips (so a re-switch shows as a removed and an added clip) and adds `multicam`: each angle's offset in the plan and the returned file (`offsets_match`) and `angle_switches` (a cut over the same record range now on another angle). `--timeline-out` keeps the angles under the plan's asset ids.
+
+### Result
+
+The fixture `tests/fixtures/multicam/multicam.json` (the `--json` shape, two cameras, camera B at +1.2 s, four cuts) at 25 fps exports one multiclip cut four times; every copy places camera B 30 frames in; FCP7 XML and OTIO read back with the angles at 0 and 30 frames and the switch list as the cut, and `diff` is identical. An angle switched in the XML is found. In the integration job, the real `multicam.py` on two generated cameras (B starts 1 s later) measures about +1.0 s; its result exported and read back has the angles at that offset in frames and the cut on its switch list.
+
+### Not decided here
+
+Whether Premiere and Resolve open this multiclip, and keep the active angle per cut (step 8; if they do not, the OTIO stack and the EDL still carry the cut). More than one multicam per timeline; per-angle sound.

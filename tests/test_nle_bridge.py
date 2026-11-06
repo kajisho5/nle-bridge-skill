@@ -967,6 +967,112 @@ class LayerTests(TmpCase):
             self.assertIn(why, str(cm.exception))
 
 
+MULTICAM_FIXTURE = ROOT / "tests" / "fixtures" / "multicam" / "multicam.json"
+
+
+def multiclips(xml_path):
+    """Each V1 clipitem's multiclip as written: (multiclip id, active angle, [(angle file name, start - in)])."""
+    import xml.etree.ElementTree as ET
+    root = ET.parse(xml_path).getroot()
+    names = {f.get("id"): f.findtext("name") for f in root.iter("file") if f.findtext("name")}
+    out = []
+    for ci in root.find("sequence/media/video/track").findall("clipitem"):
+        mc = ci.find("multiclip")
+        angles, active = [], None
+        for k, ang in enumerate(mc.findall("angle")):
+            inner = ang.find("clip/media/video/track/clipitem")
+            angles.append((names[inner.find("file").get("id")],
+                           int(inner.findtext("start")) - int(inner.findtext("in"))))
+            if ang.findtext("activevideoangle") == "TRUE":
+                active = k
+        out.append((mc.get("id"), active, angles))
+    return out
+
+
+class MulticamTests(TmpCase):
+    """ffmpeg-skill multicam results as a multicam the editor can re-switch (roadmap step 15, ADR-011)."""
+
+    def test_two_angle_fixture_opens_as_one_multiclip_at_the_sync_offsets(self):
+        out = os.path.join(self.tmp, "out")
+        code, doc, raw = run_cli("export", MULTICAM_FIXTURE, "-o", out, "--fps", "25", "--overwrite", "--json")
+        self.assertEqual(code, 0, raw)
+        files = {f["format"]: f["path"] for f in doc["files"]}
+        codes = {w["code"] for w in doc["warnings"]}
+        self.assertTrue({"MULTICAM_AS_MULTICLIP", "MULTICAM_NOT_EXPORTED", "MULTICAM_AUDIO_ASSUMED"} <= codes, codes)
+        # 1.2 s at 25 fps: camera B's first frame sits 30 frames into the multicam; the switch list is the cut
+        mcs = multiclips(files["fcp7"])
+        self.assertEqual({m[0] for m in mcs}, {"multiclip-mc1"})  # one multiclip, cut four times
+        self.assertEqual([m[1] for m in mcs], [0, 1, 0, 1])
+        self.assertEqual({tuple(m[2]) for m in mcs}, {(("camA.mp4", 0), ("camB.mp4", 30))})
+        plan = load(str(MULTICAM_FIXTURE), rate=25)
+        for fmt in ("fcp7", "otio"):
+            back = load(files[fmt])
+            self.assertEqual([(a["name"], a["offset_frames"]) for a in back["multicam"]["angles"]],
+                             [("camA.mp4", 0), ("camB.mp4", 30)], fmt)
+            v1 = back["tracks"][0]["items"]
+            self.assertEqual([(i["multicam"]["angle"], i["source_in"], i["record_in"], i["record_out"]) for i in v1],
+                             [(0, 0, 0, 50), (1, 20, 50, 112), (0, 112, 112, 150), (1, 120, 150, 200)], fmt)
+            d = diff(plan, back)
+            self.assertTrue(d["summary"]["identical"], (fmt, d["summary"]))
+            self.assertTrue(d["multicam"]["offsets_match"], d["multicam"])
+            self.assertEqual(d["multicam"]["angle_switches"], [])
+        # the EDL carries the switched cut as plain clips
+        edl_back = load(files["edl"], rate=25)
+        self.assertEqual([(i["source_in"], i["record_in"], i["record_out"]) for i in edl_back["tracks"][0]["items"]],
+                         [(0, 0, 50), (20, 50, 112), (112, 112, 150), (120, 150, 200)])
+
+    @unittest.skipUnless(HAVE_OTIO, OTIO_WHY)
+    def test_reference_reader_sees_the_angles_in_sync(self):
+        import opentimelineio as otio
+        out = os.path.join(self.tmp, "out")
+        code, doc, raw = run_cli("export", MULTICAM_FIXTURE, "-o", out, "--fps", "25", "--formats", "otio", "--json")
+        self.assertEqual(code, 0, raw)
+        t = otio.adapters.read_from_file(doc["files"][0]["path"])
+        cuts = list(t.tracks[0])
+        self.assertEqual([type(c).__name__ for c in cuts], ["Stack"] * 4)
+        for c in cuts:
+            a, b = list(c)
+            self.assertEqual([type(x).__name__ for x in b], ["Gap", "Clip"])
+            self.assertEqual(int(b[0].duration().value), 30)  # camera B starts 30 frames in
+        self.assertEqual([[tr.enabled for tr in c] for c in cuts], [[True, False], [False, True]] * 2)
+        self.assertEqual(int(t.duration().value), 200)
+
+    def test_the_editor_switching_an_angle_is_found(self):
+        out = os.path.join(self.tmp, "out")
+        code, doc, raw = run_cli("export", MULTICAM_FIXTURE, "-o", out, "--fps", "25", "--formats", "fcp7", "--json")
+        self.assertEqual(code, 0, raw)
+        xml = Path(doc["files"][0]["path"]).read_text(encoding="utf-8")
+        k = xml.index('<clipitem id="clipitem-2">')
+        j = xml.index("</multiclip>", k)
+        part = xml[k:j].replace("<activevideoangle>TRUE</activevideoangle>", "<activevideoangle>X</activevideoangle>")
+        part = part.replace("<activevideoangle>FALSE</activevideoangle>", "<activevideoangle>TRUE</activevideoangle>", 1)
+        part = part.replace("<activevideoangle>X</activevideoangle>", "<activevideoangle>FALSE</activevideoangle>")
+        ret = self.write("switched.xml", xml[:k] + part + xml[j:])
+        d = diff(load(str(MULTICAM_FIXTURE), rate=25), load(ret))
+        self.assertEqual([(x["plan_id"], x["plan_angle"], x["returned_angle"]) for x in d["multicam"]["angle_switches"]],
+                         [("c2", 1, 0)])
+        added = next(a for a in d["added"] if a["track"] == "V1")
+        self.assertEqual((added["source_in"], added["record_in"]), (50, "01:00:02:00"))  # camera A at the same moment
+        v2 = os.path.join(self.tmp, "v2.json")
+        code, _, raw = run_cli("diff", str(MULTICAM_FIXTURE), ret, "--fps", "25", "--timeline-out", v2, "--json")
+        self.assertEqual(code, 0, raw)
+        nxt = load(v2)
+        self.assertEqual([(a["asset"], a["offset_frames"]) for a in nxt["multicam"]["angles"]], [("cam0", 0), ("cam1", 30)])
+        self.assertEqual([i["asset"] for i in nxt["tracks"][0]["items"]], ["cam0", "cam0", "cam0", "cam1"])
+
+    def test_refusals(self):
+        doc = json.loads(MULTICAM_FIXTURE.read_text(encoding="utf-8"))
+        for change, why in ((lambda d: d.update(offsets_seconds=[0.0]), "one offset per input"),
+                            (lambda d: d.update(status="failed"), "not completed"),
+                            (lambda d: d.update(cuts=[[0.0, 1.0, 1]]), "has not started"),
+                            (lambda d: d.update(cuts=[[0.0, 1.0, 5]]), "camera of the inputs")):
+            bad = copy.deepcopy(doc)
+            change(bad)
+            with self.assertRaises(NleBridgeError) as cm:
+                load(self.write("bad.json", bad), rate=25)
+            self.assertIn(why, str(cm.exception))
+
+
 # ------------------------------------------------------------------------------------------------ inputs
 def agent_ir(media_dir):
     return {"schema_version": "1.0", "project": {"id": "talk"},
@@ -1571,6 +1677,39 @@ class RealProbeTests(TmpCase):
                 # ffmpeg-skill colours chapter markers RED; time and name are the same
                 self.assertEqual([c["changes"] for c in d["markers"]["changed"]], [["color"], ["color"]])
 
+
+    def test_multicam_result_of_ffmpeg_skill_lines_up_at_its_offsets(self):
+        """ffmpeg-skill multicam.py on two cameras of one scene (camera B starts 1 s later), its --json result exported
+        as a multiclip and read back: the angles sit at the offset multicam.py measured, the switch list is the cut."""
+        media = os.path.join(self.tmp, "m")
+        os.makedirs(media)
+        a, b = os.path.join(media, "camA.mp4"), os.path.join(media, "camB.mp4")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=6",
+                        "-f", "lavfi", "-i", "anoisesrc=d=6:c=pink:seed=7:a=0.3", "-shortest", "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p", "-c:a", "aac", a], check=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "1", "-i", a, "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", b], check=True)
+        r = subprocess.run([sys.executable, str(FFMPEG_SKILL_DIR / "scripts" / "multicam.py"), a, b, "--switch",
+                            "0-2:0,2-4:1,4-5:0", "-o", os.path.join(self.tmp, "edit.mp4"), "--json"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        result = json.loads(r.stdout)
+        self.assertAlmostEqual(result["offsets_seconds"][1], 1.0, delta=0.05)
+        res_path = self.write("multicam.json", result)
+        pr = engine.prober(engine.locate(str(FFMPEG_SKILL_DIR)))
+        plan = load(res_path, prober=pr)
+        self.assertEqual(plan["rate"], "25")
+        out = os.path.join(self.tmp, "out")
+        code, doc, raw = run_cli("export", res_path, "-o", out, "--formats", "otio,fcp7", "--ffmpeg-skill",
+                                 FFMPEG_SKILL_DIR, "--json")
+        self.assertEqual(code, 0, raw)
+        off = seconds_to_frames(Fraction(str(result["offsets_seconds"][1])), Fraction(25))
+        for f in doc["files"]:
+            back = load(f["path"])
+            self.assertEqual([x["offset_frames"] for x in back["multicam"]["angles"]], [0, off], f["format"])
+            self.assertEqual([i["multicam"]["angle"] for i in back["tracks"][0]["items"]],
+                             [c[2] for c in result["cuts"]], f["format"])
+            self.assertTrue(diff(plan, back)["summary"]["identical"], f["format"])
 
     def test_dissolves_match_ffmpeg_skill_render_export_timeline(self):
         """render.py's default 0.5 s fade through ffmpeg-skill `render --export-timeline` and through this skill with

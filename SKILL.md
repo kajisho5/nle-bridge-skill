@@ -20,6 +20,7 @@ Run `nle-bridge <command> ... --json` (installed by `pip install -e .`; `pip ins
 | The editor's cut as the next plan | add `--timeline-out plan_v2.json` |
 | Any timeline as JSON | `nle-bridge import file.otio -o timeline.json --json` (`--fps` for an EDL) |
 | Graphics (titles, lower thirds, CG) as layers on upper tracks | add `"layers": ["lower_third.layers.json", ...]` to the plan (`nle-bridge/layers@1`: id, file, start, end, box); then `export` / `conform` / `diff` as usual |
+| ffmpeg-skill's multicam edit as a multicam the editor can re-switch | `nle-bridge export multicam.json -o out/ --json` (the `multicam.py --json` result: the angles at their sync offsets, the switch list as the cut) |
 | A cut auto-editor made (its `--export premiere` XML) | `nle-bridge import cut.xml --json`, or `diff plan.json cut.xml` (its labels, links and per-channel tracks are named in `warnings` / `not_imported`) |
 | What this skill declares | `nle-bridge contract --json` |
 
@@ -35,6 +36,7 @@ Run `nle-bridge <command> ... --json` (installed by `pip install -e .`; `pip ins
 - Interchange is cuts, tracks, markers, (FCP7) levels and, only with `--dissolves`, cross dissolves. Do not say the effects, speed changes, titles or other transitions were exported: they are in `warnings`, and a sped-up clip is written at 100 % for its planned length. A dissolve that could not be written is in `warnings` too.
 - The files were checked with opentimelineio and its adapters, not imported into a real Premiere or Resolve by this skill. Say that if asked whether it "works in Premiere".
 - Graphics layers go one per track above the picture. A layer file smaller than the frame is centred by the NLE (`LAYER_POSITION_NOT_EXPORTED`): say the editor has to place it.
+- A multicam goes out as an FCP7 multiclip and an OTIO stack per cut. No NLE has opened that multiclip yet (`MULTICAM_AS_MULTICLIP`): say so, and that the EDL has the plain cut. Drift correction is not carried, and the sound is assumed to be camera 0's.
 - `diff` is what the returned file says. Cross dissolves are compared (`transition`); effects, other transitions and titles the editor added are listed in `not_imported`, not merged into the plan. A clip the editor replaced with different media shows as removed + added. Premiere's per-channel copies of a stereo clip (A1 + A2) are folded into one and listed in `channels_folded`; say so when reporting audio.
 - Source timecodes start at the media's start timecode: the plan's, else ffmpeg-skill 3.0.0+ `probe`'s (`facts_from.start_timecode` in `relink.json`). With ffmpeg-skill 2.x or none, and nothing in the plan, it is not known and 00:00:00:00 is assumed (`start_timecode_note`); say so. Pass on `START_TIMECODE_MISMATCH` (the plan's value was used, not the file's).
 - A beat offset is in frames from the nearest beat of the grid given; with an ASSUMED bar the bar number is a count, not a fact about the music.

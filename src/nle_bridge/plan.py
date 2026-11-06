@@ -13,6 +13,8 @@
   transition (render.py's default: a 0.5 s fade) is a hard cut, or with `dissolves` a cross dissolve laid out as
   ffmpeg-skill lays it: each clip gives d - d // 2 frames of head and d // 2 of tail to its dissolves, so the
   timeline is as long as the render and the cuts land where ffmpeg-skill's own export puts them.
+- ffmpeg-skill's multicam result (`multicam.py --json`: inputs, offsets_seconds, cuts): the cameras as the angles of
+  a multicam, the switch list as the initial cut (multicam.py).
 - An editor timeline: `.otio`, FCP7 `.xml`, CMX 3600 `.edl` (the rate comes from `rate` / the plan).
 """
 from __future__ import annotations
@@ -26,6 +28,7 @@ from typing import Any, Callable, Dict, List, Optional
 from . import edl, fcp7, otio_io, srt
 from .engine import EngineError
 from .layers import add_layers
+from .multicam import check as check_multicam, from_result, is_multicam_result
 from .model import (NleBridgeError, asset_start_frames, base_name, normalise, rate_of, resolve_path, take_probe_timecode,
                     warning)
 from .timecode import TimecodeError, parse_rate, rate_str, seconds_to_frames
@@ -94,6 +97,8 @@ def detect_kind(path: str, doc: Any = None) -> str:
     if isinstance(doc, dict):
         if doc.get("OTIO_SCHEMA"):
             return "otio"
+        if is_multicam_result(doc):
+            return "multicam"
         if doc.get("schema") == "nle-bridge/timeline@1" or "tracks" in doc:
             return "native"
         if "schema_version" in doc and ("delivery" in doc or "assets" in doc):
@@ -101,7 +106,8 @@ def detect_kind(path: str, doc: Any = None) -> str:
         if isinstance(doc.get("clips"), list):
             return "render"
     raise NleBridgeError("INVALID_PLAN", f"{path}: not a timeline this skill reads (nle-bridge/timeline@1, the agent's "
-                                         "project IR, an ffmpeg-skill render project, .otio, FCP7 .xml or .edl)")
+                                         "project IR, an ffmpeg-skill render project or multicam result, .otio, FCP7 "
+                                         ".xml or .edl)")
 
 
 def from_agent(doc: Dict[str, Any], *, subject: Optional[str], rate: Any, base_dir: Optional[str]) -> Dict[str, Any]:
@@ -350,9 +356,12 @@ def load(path: str, *, rate: Any = None, subject: Optional[str] = None, prober: 
         if drop_frame is not None:
             doc = dict(doc, drop_frame=drop_frame)
         tl = normalise(doc, base_dir=base_dir, rate=rate)
+        check_multicam(tl)
         if doc.get("layers"):  # graphics layers on upper video tracks (layers.py, ADR-010)
             add_layers(tl, doc["layers"], base_dir)
         return probe_timecodes(tl, prober)
+    if kind == "multicam":
+        return probe_timecodes(_df(from_result(doc, rate=rate, base_dir=base_dir, prober=prober), drop_frame), prober)
     if kind == "agent":
         return probe_timecodes(_df(from_agent(doc, subject=subject, rate=rate, base_dir=base_dir), drop_frame), prober)
     if kind == "render":

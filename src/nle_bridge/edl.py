@@ -59,6 +59,11 @@ def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = N
     def tc(frames: int) -> str:
         return frames_to_timecode(frames, rate, drop)
 
+    if tl.get("multicam") and any(it.get("multicam") for t in tl["tracks"] for it in t["items"]):
+        warns.append(warning("MULTICAM_NOT_EXPORTED", f"{tl['multicam'].get('name') or 'the multicam'}: the EDL has the "
+                             "switched cut as plain clips; the angles and their sync offsets are not in it (use the OTIO "
+                             "or FCP7 XML)", fmt="edl"))
+
     events: List[Tuple[int, str, List[str]]] = []  # (record start, channel, lines after the event number)
     v_seen = a_seen = 0
     for t in tl["tracks"]:
