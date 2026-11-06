@@ -299,7 +299,7 @@ def normalise(doc: Dict[str, Any], *, base_dir: Optional[str] = None, rate: Any 
                 item["speed"] = round(speed, 6)
             if it.get("gain_db") is not None:
                 item["gain_db"] = float(it["gain_db"])
-            for k in ("effects", "text"):
+            for k in ("effects", "text", "layer"):
                 if it.get(k):
                     item[k] = it[k]
             if it.get("transition_in"):

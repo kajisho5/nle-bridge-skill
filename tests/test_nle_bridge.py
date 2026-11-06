@@ -853,6 +853,120 @@ class AutoEditorTests(TmpCase):
             self.assertEqual((c2["changes"], c2["delta_frames"]["record_out"]), (["trimmed"], -1))
 
 
+LAYER_FIXTURES = ROOT / "tests" / "fixtures" / "layers"
+
+
+def layered_plan(media_dir="/media"):
+    """sample_plan with the three layer manifests of tests/fixtures/layers (one per producer shape)."""
+    p = sample_plan("25", media_dir=media_dir)
+    p["layers"] = [str(LAYER_FIXTURES / n) for n in ("motion-graphics.layers.json", "hyperframes.layers.json",
+                                                     "remotion.layers.json")]
+    return p
+
+
+class LayerTests(TmpCase):
+    """Graphics layers on upper video tracks (roadmap step 14, ADR-010)."""
+
+    EXPECT = [("V2", "layer-lt1", 25, 150), ("V3", "layer-title", 0, 50), ("V4", "layer-captions", 0, 275)]
+
+    def test_three_layers_export_to_three_upper_tracks_and_read_back(self):
+        plan_path, files, doc = self.export(layered_plan(), "otio,fcp7,edl")
+        tl = load(plan_path)
+        self.assertEqual([t["name"] for t in tl["tracks"] if t["kind"] == "video"], ["V1", "V2", "V3", "V4"])
+        got = [(t["name"], it["id"], it["record_in"], it["record_out"]) for t in tl["tracks"] for it in t["items"]
+               if it.get("layer")]
+        self.assertEqual(got, self.EXPECT)
+        for fmt in ("otio", "fcp7"):
+            back = load(files[fmt])
+            self.assertEqual([t["name"] for t in back["tracks"] if t["kind"] == "video"], ["V1", "V2", "V3", "V4"], fmt)
+            self.assertEqual([(t["name"], it["id"], it["record_in"], it["record_out"]) for t in back["tracks"][1:4]
+                              for it in t["items"]], self.EXPECT, fmt)
+            code, d, raw = run_cli("diff", plan_path, files[fmt], "--json")
+            self.assertEqual(code, 0, raw)
+            self.assertTrue(d["summary"]["identical"], (fmt, d["summary"]))
+            self.assertEqual([(x["layer"], x["track"], x["status"], x["plan"]["record_in"], x["returned"]["record_in"])
+                              for x in d["layers"]],
+                             [("lt1", "V2", "unchanged", "01:00:01:00", "01:00:01:00"),
+                              ("title", "V3", "unchanged", "01:00:00:00", "01:00:00:00"),
+                              ("captions", "V4", "unchanged", "01:00:00:00", "01:00:00:00")], fmt)
+        codes = {(w["code"], w["format"]) for w in doc["warnings"]}
+        self.assertIn(("TRACK_NOT_EXPORTED", "edl"), codes)  # the EDL has one picture track: the layers are named
+        self.assertIn(("LAYER_POSITION_NOT_EXPORTED", "all"), codes)  # the hyperframes title is smaller than the frame
+
+    @unittest.skipUnless(HAVE_ADAPTERS, OTIO_WHY)
+    def test_reference_reader_sees_the_upper_tracks(self):
+        import opentimelineio as otio
+        _, files, _ = self.export(layered_plan(), "otio,fcp7")
+        for path, adapter in ((files["otio"], None), (files["fcp7"], "fcp_xml")):
+            t = otio.adapters.read_from_file(path, adapter_name=adapter) if adapter else otio.adapters.read_from_file(path)
+            video = [tr for tr in t.tracks if tr.kind == otio.schema.TrackKind.Video]
+            self.assertEqual(len(video), 4, path)
+            got = []
+            for tr in video[1:]:
+                c = next(iter(tr.find_clips()))
+                r = tr.range_of_child(c)
+                got.append((int(round(r.start_time.value)), int(round(r.end_time_exclusive().value))))
+            self.assertEqual(got, [(25, 150), (0, 50), (0, 275)], path)
+
+    def test_a_layer_the_editor_moved_is_found(self):
+        plan_path, files, _ = self.export(layered_plan(), "fcp7")
+        xml = Path(files["fcp7"]).read_text(encoding="utf-8")
+        k = xml.index("<mastercomment1>nle-bridge:layer-lt1</mastercomment1>")
+        head, tail = xml[:k], xml[k:]
+        i = head.rindex("<start>25</start>")
+        head = head[:i] + "<start>30</start>" + head[i + len("<start>25</start>"):]
+        i = head.rindex("<end>150</end>")
+        head = head[:i] + "<end>155</end>" + head[i + len("<end>150</end>"):]
+        moved = self.write("moved.xml", head + tail)
+        d = diff(load(plan_path), load(moved))
+        lt1 = next(x for x in d["layers"] if x["layer"] == "lt1")
+        self.assertEqual((lt1["status"], lt1["changes"], lt1["delta_frames"]["record_in"]), ("changed", ["moved"], 5))
+        self.assertEqual((d["summary"]["identical"], d["summary"]["layers_changed"]), (False, 1))
+        # the next plan version keeps what the layer is, at the editor's time (FCP7 XML carries no layer metadata)
+        v2 = os.path.join(self.tmp, "v2.json")
+        code, _, raw = run_cli("diff", plan_path, moved, "--timeline-out", v2, "--json")
+        self.assertEqual(code, 0, raw)
+        it = next(i for t in load(v2)["tracks"] for i in t["items"] if i["id"] == "layer-lt1")
+        self.assertEqual((it["layer"]["type"], it["layer"]["box"]["width"], it["record_in"]), ("lower_third", 900, 30))
+
+    def test_conform_carries_the_layer_files(self):
+        media = os.path.join(self.tmp, "media")
+        os.makedirs(media)
+        for n in ("cam a.mov", "cam_b.mov", "music.wav"):
+            Path(media, n).write_bytes(b"x")
+        lay = os.path.join(self.tmp, "layers")
+        shutil.copytree(LAYER_FIXTURES, lay)
+        os.makedirs(os.path.join(lay, "media"))
+        for n in ("lt1.mov", "title.mov", "captions.mov"):
+            Path(lay, "media", n).write_bytes(n.encode())
+        p = sample_plan("25", media_dir=media)
+        p["layers"] = ["layers/motion-graphics.layers.json", "layers/hyperframes.layers.json", "layers/remotion.layers.json"]
+        plan_path = self.write("plan.json", p)
+        out = os.path.join(self.tmp, "pkg")
+        code, doc, raw = run_cli("conform", plan_path, "-o", out, "--copy-media", "--no-probe", "--json")
+        self.assertEqual(code, 0, raw)
+        rel = {m["asset"]: m for m in doc["relink"]["media"]}
+        self.assertEqual(rel["layer-lt1"]["layer"]["type"], "lower_third")
+        self.assertEqual(rel["layer-lt1"]["package_path"], "media/lt1.mov")
+        self.assertTrue(rel["layer-title"]["exists"])
+        man = json.loads(Path(out, "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual([(x["id"], x["track"], x["package_path"]) for x in man["layers"]],
+                         [("lt1", "V2", "media/lt1.mov"), ("title", "V3", "media/title.mov"),
+                          ("captions", "V4", "media/captions.mov")])
+        self.assertTrue(Path(out, "media", "captions.mov").is_file())
+
+    def test_refusals(self):
+        for bad, why in (({"id": "x", "file": "a.mov", "start": 2, "end": 1}, "empty"),
+                         ({"file": "a.mov", "start": 0, "end": 1}, "needs an id"),
+                         ({"id": "x", "start": 0, "end": 1}, "needs its file"),
+                         ({"id": "x", "file": "a.mov", "start": 0, "end": 5, "duration": 2}, "frames long")):
+            p = sample_plan("25")
+            p["layers"] = [bad]
+            with self.assertRaises(NleBridgeError) as cm:
+                load(self.write("bad.json", p))
+            self.assertIn(why, str(cm.exception))
+
+
 # ------------------------------------------------------------------------------------------------ inputs
 def agent_ir(media_dir):
     return {"schema_version": "1.0", "project": {"id": "talk"},

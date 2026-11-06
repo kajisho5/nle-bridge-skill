@@ -1,0 +1,9 @@
+{
+  "schema": "nle-bridge/layers@1",
+  "producer": "hyperframes-skill",
+  "layers": [
+    {"id": "title", "type": "title_card", "file": "media/title.mov", "start": 0, "end": 2.0,
+     "position": {"x": 320, "y": 180}, "width": 1280, "height": 720, "fps": 25, "duration": 2.0,
+     "alpha": "straight"}
+  ]
+}

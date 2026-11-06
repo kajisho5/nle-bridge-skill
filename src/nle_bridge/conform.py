@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import __version__
 from .export import sha256_file, write_files
+from .layers import layer_list
 from .model import (PROBE, NleBridgeError, asset_start_frames, base_name, rate_of, start_frames, summary,
                     take_probe_timecode, warning)
 from .timecode import frames_to_timecode, seconds_to_frames
@@ -136,8 +137,15 @@ def relink_entries(tl: Dict[str, Any], probe: Optional[Callable[[str], Optional[
                     use["handle_after"] = leaving[it["id"]]["after"] if it["id"] in leaving else 0
                 uses.append(use)
         e["used"] = uses
+        layer = next((it["layer"] for t in tl["tracks"] for it in t["items"] if it.get("asset") == aid and it.get("layer")), None)
+        if layer:  # a graphics layer (layers.py): what it is and where it sits, which the timelines may not carry
+            e["layer"] = layer
         out.append(e)
     return {"schema": RELINK_SCHEMA, "rate": tl["rate"], "drop_frame": drop, "media": out, "warnings": warns}
+
+
+def _asset_of(tl: Dict[str, Any], item_id: str) -> Optional[str]:
+    return next((it.get("asset") for t in tl["tracks"] for it in t["items"] if it["id"] == item_id), None)
 
 
 def package(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optional[str] = None,
@@ -204,6 +212,13 @@ def package(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optio
     manifest = {"schema": CONFORM_SCHEMA, "skill": "nle-bridge-skill", "skill_version": __version__,
                 "timeline": summary(tl_out), "formats": [f["format"] for f in written["files"]],
                 "media_copied": copy_media, "files": files, "warnings": warns, **(extra or {})}
+    lays = layer_list(tl)
+    if lays:
+        pkg = {e["asset"]: e["package_path"] for e in relink["media"]}
+        manifest["layers"] = [dict(x, package_path=pkg.get(_asset_of(tl, x["item"])),
+                                   record_in=frames_to_timecode(start_frames(tl) + x["record_in"], rate_of(tl), tl["drop_frame"]),
+                                   record_out=frames_to_timecode(start_frames(tl) + x["record_out"], rate_of(tl), tl["drop_frame"]))
+                              for x in lays]
     _write_json(os.path.join(out_dir, "manifest.json"), manifest)
     zipped = None
     if make_zip:

@@ -261,3 +261,32 @@ The reader is the same FCP7 XML reader for every NLE: these checks are generic (
 ### Not decided here
 
 auto-editor's Resolve variant (`--export resolve-fcp7`: no exploded tracks, links per clip) is not a fixture; it is the same reader. What Premiere itself makes of auto-editor's file is step 8.
+
+## ADR-010 Graphics layers on upper video tracks
+
+Checked 2026-11-06 against motion-graphics-skill `ECOSYSTEM_ROADMAP.md` step 8 ("Layer export": one alpha file per element and a manifest of element id, type, start, end, box; not built), hyperframes-skill step 13 ("Alpha deliveries"; its `render` writes ProRes 4444 alpha today, one file per scene, no manifest), remotion-ffmpeg-skill step 11 (`--layers` with a manifest of times and position; not built; today `render.py --overlay --keep-graphics` keeps one full-frame ProRes 4444 layer of the source's length, `graphics` in its result), and Velisa ROADMAP's "Layers as separate alpha files for After Effects / NLE" row, all read only.
+
+### Requirements
+
+- Roadmap step 14: the producers' layer manifests (alpha files with times and positions) placed on upper video tracks in OTIO and FCP7 XML, with their sources in the conform package, so titles and CG can be fixed in the NLE afterwards.
+- Done when: a fixture with three graphic layers exports to three upper tracks and reads back with the same times in `diff`.
+- None of the three manifests exists yet. Their roadmaps name the fields; this skill reads those fields under one schema and hands the shape over ([docs/handover-layer-manifest.md](handover-layer-manifest.md)) rather than guess three formats.
+- video-production-agent pins this contract; `argv` and `formats` are fatal drift there (its adapter's `FATAL_DRIFT_KEYS`). The input must not need a new flag.
+
+### Decision
+
+- **`nle-bridge/layers@1`, given in the plan.** A `nle-bridge/timeline@1` plan's `layers` holds manifest paths, manifests or single layers. No new CLI flag: `export`, `conform`, `diff` and `import` all read it through the plan, so a returned timeline is compared with the same layers, and the pinned `argv` stays as it is. Fields: `id` / `element_id`, `file` / `path` (relative to the manifest), `start` / `end` (programme seconds) or `start_frame` / `end_frame`, `source_in`, `type`, `name`, `box` / `position`, the file's `width` / `height` / `fps` / `duration` (checked against the length played), `alpha` (recorded).
+- **One track per layer**, above the plan's picture tracks, in the order given (the first lowest), named on from the last picture track (V2, V3, ...). Each is a clip of its file (`layer-<id>`, no sound) carrying `layer` {id, type, box, alpha, producer, manifest}.
+- **Position.** A file the size of the frame needs none (the shape the producers' roadmaps describe: rendered alone on transparent). Neither OTIO (no transform schema) nor this skill's FCP7 XML writes one (a Basic Motion centre would be a guess at how Premiere and Resolve read it, unverified until step 8), so a smaller file is centred by the NLE: `LAYER_POSITION_NOT_EXPORTED` names it, and the box is kept in OTIO metadata and `relink.json`. Alpha is the file's own; no `alphatype` is written.
+- **EDL.** One picture track: the layers are `TRACK_NOT_EXPORTED`, as any second picture track.
+- **Conform.** Each layer file is an asset: in `relink.json` with its facts and `layer`, copied with `--copy-media` (the timelines then point into the package). `manifest.json` lists the layers (id, type, track, item, file, package path, record in / out).
+- **Diff.** Layer clips pair like any clip (same media, overlapping ranges, the plan id when the NLE keeps it). `layers` lists each plan layer with its pair (status, changes, frame deltas) or as removed; `summary.layers_changed`. `--timeline-out` puts each layer's `layer` back on its item (FCP7 XML carries none), at the editor's times.
+- **Contract.** Additive only: a `layers` block and an `inputs` entry. `argv`, `formats` and `execution` are unchanged.
+
+### Result
+
+The fixture (`tests/fixtures/layers/`: three manifests, one per producer, a full-frame lower third with a box, a 1280x720 title card, a full-frame captions layer) on the sample plan exports V2-V4; OTIO and FCP7 XML read back with the same record ranges (also through opentimelineio and its FCP7 adapter), and `diff` is identical with each layer `unchanged`. A layer the editor moved by 5 frames is reported as `moved`, +5.
+
+### Not decided here
+
+The producers' real manifests (their roadmap steps); re-read them when they ship. How Premiere and Resolve place a layer smaller than the frame, and whether they honour a written position (step 8).

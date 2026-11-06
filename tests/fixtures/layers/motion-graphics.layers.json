@@ -1,0 +1,9 @@
+{
+  "schema": "nle-bridge/layers@1",
+  "producer": "motion-graphics-skill",
+  "layers": [
+    {"element_id": "lt1", "type": "lower_third", "name": "Lower third: speaker", "file": "media/lt1.mov",
+     "start": 1.0, "end": 6.0, "box": {"x": 96, "y": 820, "w": 900, "h": 160},
+     "width": 1920, "height": 1080, "fps": 25, "duration": 5.0, "alpha": "straight"}
+  ]
+}
