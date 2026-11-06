@@ -1,0 +1,8 @@
+{
+  "schema": "nle-bridge/layers@1",
+  "producer": "remotion-ffmpeg-skill",
+  "layers": [
+    {"id": "captions", "type": "captions", "file": "media/captions.mov", "start": 0, "end": 11.0,
+     "width": 1920, "height": 1080, "fps": 25, "alpha": "straight"}
+  ]
+}

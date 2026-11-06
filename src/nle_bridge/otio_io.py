@@ -56,6 +56,8 @@ def write(tl: Dict[str, Any], dissolves: Optional[Dict[str, Dict[str, Any]]] = N
                 children.append(_gap(it["record_in"] - pos, rate))
             length = it["record_out"] - it["record_in"]
             meta: Dict[str, Any] = {"id": it["id"], "kind": it["kind"]}
+            if it.get("layer"):  # a graphics layer (layers.py): its id, type, box and alpha travel as metadata
+                meta["layer"] = it["layer"]
             if it.get("gain_db") is not None:
                 meta["gain_db"] = it["gain_db"]
                 warns.append(warning("LEVEL_METADATA_ONLY", f"{it['id']}: level {it['gain_db']:+g} dB is kept as OTIO "
@@ -229,6 +231,7 @@ def read(text: str, *, name_hint: str = "timeline", rate: Any = None) -> Dict[st
                           "source_in": start, "source_out": start + dur, "record_in": pos, "record_out": pos + dur,
                           "enabled": bool(c.get("enabled", True)),
                           **({"gain_db": cmeta["gain_db"]} if cmeta.get("gain_db") is not None else {}),
+                          **({"layer": cmeta["layer"]} if isinstance(cmeta.get("layer"), dict) else {}),
                           **({"transition_in": tr_in} if tr_in and tr_in["frames"] > 0 else {})})
             for m in c.get("markers") or []:
                 mr = m.get("marked_range") or {}

@@ -10,6 +10,7 @@ from .conform import CONFORM_SCHEMA, RELINK_SCHEMA
 from .diff import DIFF_SCHEMA
 from .engine import ENV_DIRS, REQUIRED_TOOLS
 from .export import DEFAULT_FORMATS, FORMATS
+from .layers import LAYERS_SCHEMA
 from .model import DEFAULT_START_TC, MARKER_COLORS, TIMELINE_SCHEMA
 
 SKILL_ID = "nle-bridge"
@@ -131,6 +132,7 @@ def contract() -> Dict[str, Any]:
                     "srt": {"extension": FORMATS["srt"], "carries": ["captions in programme time"]}},
         "default_formats": list(DEFAULT_FORMATS),
         "inputs": [TIMELINE_SCHEMA, "video-production-agent project IR (delivery.timelines[], ADR-052)",
+                   f"{LAYERS_SCHEMA} graphics layer manifests (a plan's `layers`)",
                    "ffmpeg-skill render project (clips[].src)", "OTIO JSON", "FCP7 XML", "CMX 3600 EDL (with --fps)"],
         "timeline": {"schema": TIMELINE_SCHEMA, "units": "whole frames at an exact rational rate",
                      "default_start_timecode": DEFAULT_START_TC, "marker_colors": list(MARKER_COLORS),
@@ -147,6 +149,17 @@ def contract() -> Dict[str, Any]:
         "conform": {"schema": CONFORM_SCHEMA, "relink_schema": RELINK_SCHEMA,
                     "layout": ["timeline/<name>.otio|.xml|.edl|.srt|.json", "media/ (--copy-media)", "relink.json",
                                "manifest.json"], "zip": "<dir>.zip, fixed entry dates, sorted"},
+        "layers": {"schema": LAYERS_SCHEMA, "plan_key": "layers",
+                   "layer": ["id | element_id", "file | path (relative to the manifest)", "start, end (programme seconds) | "
+                             "start_frame, end_frame", "source_in", "type", "name", "box {x, y, width, height} | position "
+                             "{x, y}", "width", "height", "fps", "duration", "alpha (recorded only)"],
+                   "placed": "one video track per layer above the plan's picture tracks, in the order given (OTIO and "
+                             "FCP7 XML; the EDL has one picture track: TRACK_NOT_EXPORTED)",
+                   "not_carried": ["the position of a file smaller than the frame (LAYER_POSITION_NOT_EXPORTED; kept in "
+                                   "OTIO metadata and relink.json)"],
+                   "conform": "each layer file is in relink.json (with `layer`) and copied with --copy-media; "
+                              "manifest.json lists the layers",
+                   "diff": "`layers`: each layer's clip pair (or removed), `summary.layers_changed`"},
         "diff": {"schema": DIFF_SCHEMA, "provenance": "OBSERVED",
                  "beat_offset": "signed frames from the nearest beat (positive: the cut is after it)"},
         "warnings": {"loss_codes": list(LOSS_CODES), "strict": "--strict exits 5 (CONTENT_NOT_EXPORTED) before writing",

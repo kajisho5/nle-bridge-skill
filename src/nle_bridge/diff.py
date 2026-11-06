@@ -18,6 +18,7 @@ The returned file (OTIO, FCP7 XML or EDL) is read into the same frame-based mode
    clip of the same media, as a razor cut does).
 3. Cut points: the edit points of the first video track (every clip start and end except the timeline's first
    and last frame). A plan cut point follows its clip pair to the returned one; delta_frames is the move.
+   A graphics layer of the plan (layers.py) is listed again under `layers` with its clip pair (or as removed).
 4. Markers: the plan's markers against the returned ones by name, then by position. Beat-grid markers
    (`Bar N` / `Beat N.b`, kind bar / beat) are counted, not diffed.
 5. Beats (when a beat grid is given): for every returned cut point (and the plan's, for comparison) the nearest
@@ -261,11 +262,13 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                                      if "level" in changes else {}),
                                   **({"transition_in": {"plan": _transition(o), "returned": _transition(r)}}
                                      if "transition" in changes else {}),
-                                  **({"channel_tracks": r["channel_tracks"]} if r.get("channel_tracks") else {})})
+                                  **({"channel_tracks": r["channel_tracks"]} if r.get("channel_tracks") else {}),
+                                  **({"layer": o["layer"]["id"]} if o.get("layer") else {})})
             for o in removed:
                 removed_out.append({"track": track, "plan_id": o["id"], "asset": o.get("asset"), "name": o["name"],
                                     "record_in": otc(o["record_in"]), "record_out": otc(o["record_out"]),
-                                    "frames": o["record_out"] - o["record_in"]})
+                                    "frames": o["record_out"] - o["record_in"],
+                                    **({"layer": o["layer"]["id"]} if o.get("layer") else {})})
             for r in added:
                 aid = amap.get(r.get("asset"))
                 split = next((o["id"] for o in ot["items"] if aid and o.get("asset") == aid and _overlap(o, r) > 0), None)
@@ -333,6 +336,7 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
 
     markers = _diff_markers(orig["markers"], ret["markers"], otc, rtc, carries_color)
     changed = sum(1 for c in clips_out if c["status"] == "changed")
+    layers = _layers(orig, clips_out, removed_out)
     return {"schema": DIFF_SCHEMA, "plan": summary(orig), "returned": dict(summary(ret), file=returned_path),
             "media": {"matched": {rid: aid for rid, aid in amap.items() if aid},
                       "new": [{"returned_asset": rid, "path": ret["assets"][rid]["path"]} for rid in new_media]},
@@ -343,6 +347,7 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                         "cuts_removed": sum(1 for c in cuts if c["status"] == "removed"),
                         "transitions_changed": sum(1 for c in clips_out if "transition" in c["changes"]),
                         "channel_clips_folded": len(folded),
+                        "layers_changed": sum(1 for x in layers if x["status"] != "unchanged"),
                         "markers_added": len(markers["added"]), "markers_removed": len(markers["removed"]),
                         "markers_changed": len(markers["changed"]),
                         "duration_delta_frames": r_end - o_end,
@@ -350,7 +355,25 @@ def diff(orig: Dict[str, Any], ret: Dict[str, Any], *, grid: Optional[Dict[str, 
                                           or markers["changed"] or r_end != o_end)},
             "clips": clips_out, "added": added_out, "removed": removed_out, "cuts": cuts, "markers": markers,
             "channels_folded": [dict(f, record_in=rtc(f["record_in"]), record_out=rtc(f["record_out"])) for f in folded],
-            "beats": beats_summary, "not_compared": not_compared, "not_imported": ret.get("warnings") or []}
+            "layers": layers, "beats": beats_summary, "not_compared": not_compared,
+            "not_imported": ret.get("warnings") or []}
+
+
+def _layers(orig: Dict[str, Any], clips_out: List[Dict[str, Any]], removed_out: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Each graphics layer of the plan (layers.py) with where it came back: its clip pair, or removed."""
+    types = {it["layer"]["id"]: it["layer"].get("type") for t in orig["tracks"] for it in t["items"] if it.get("layer")}
+    out = []
+    for c in clips_out:
+        if c.get("layer"):
+            out.append({"layer": c["layer"], "type": types.get(c["layer"]), "track": c["track"], "status": c["status"],
+                        "changes": c["changes"], "delta_frames": c["delta_frames"],
+                        "plan": c["plan"], "returned": c["returned"]})
+    for r in removed_out:
+        if r.get("layer"):
+            out.append({"layer": r["layer"], "type": types.get(r["layer"]), "track": r["track"], "status": "removed",
+                        "changes": [], "delta_frames": None,
+                        "plan": {"record_in": r["record_in"], "record_out": r["record_out"]}, "returned": None})
+    return out
 
 
 def _is_grid(m: Dict[str, Any]) -> bool:
@@ -410,8 +433,11 @@ def as_plan(orig: Dict[str, Any], ret: Dict[str, Any], returned_path: Optional[s
             nid = rid if rid not in orig["assets"] else f"new_{rid}"
             assets[nid] = dict(a)
             rename[rid] = nid
+    layers = {it["id"]: it["layer"] for t in orig["tracks"] for it in t["items"] if it.get("layer")}
     tracks = [{"kind": t["kind"], "name": t["name"],
-               "items": [dict(it, asset=rename.get(it["asset"], it["asset"])) for it in t["items"]]} for t in ret["tracks"]]
+               "items": [dict(it, asset=rename.get(it["asset"], it["asset"]),
+                              **({"layer": layers[it["id"]]} if it["id"] in layers and not it.get("layer") else {}))
+                         for it in t["items"]]} for t in ret["tracks"]]
     out = dict(ret, assets=assets, tracks=tracks, name=orig["name"],
                source={"format": (ret.get("source") or {}).get("format"), "derived_from": orig["name"],
                        "returned_file": returned_path, "provenance": "EDITOR"})

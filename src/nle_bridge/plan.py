@@ -1,6 +1,7 @@
 """Every input this skill accepts, as one normalised `nle-bridge/timeline@1`.
 
-- `nle-bridge/timeline@1` (frames, or the seconds form; see model.py): what an agent or a person writes.
+- `nle-bridge/timeline@1` (frames, or the seconds form; see model.py): what an agent or a person writes. Its
+  `layers` (manifest paths or layers, `nle-bridge/layers@1`) go on upper video tracks (layers.py).
 - video-production-agent's project IR (`project.json` with `schema_version`, `assets`, `delivery.timelines[]`,
   agent ADR-052): one `timeline.export` record (pick it with `subject` when there are several). Its clips are the
   kept source ranges in programme order; the assets' paths and probe facts come from `assets`; captions from the
@@ -24,6 +25,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import edl, fcp7, otio_io, srt
 from .engine import EngineError
+from .layers import add_layers
 from .model import (NleBridgeError, asset_start_frames, base_name, normalise, rate_of, resolve_path, take_probe_timecode,
                     warning)
 from .timecode import TimecodeError, parse_rate, rate_str, seconds_to_frames
@@ -347,7 +349,10 @@ def load(path: str, *, rate: Any = None, subject: Optional[str] = None, prober: 
     if kind == "native":
         if drop_frame is not None:
             doc = dict(doc, drop_frame=drop_frame)
-        return probe_timecodes(normalise(doc, base_dir=base_dir, rate=rate), prober)
+        tl = normalise(doc, base_dir=base_dir, rate=rate)
+        if doc.get("layers"):  # graphics layers on upper video tracks (layers.py, ADR-010)
+            add_layers(tl, doc["layers"], base_dir)
+        return probe_timecodes(tl, prober)
     if kind == "agent":
         return probe_timecodes(_df(from_agent(doc, subject=subject, rate=rate, base_dir=base_dir), drop_frame), prober)
     if kind == "render":
