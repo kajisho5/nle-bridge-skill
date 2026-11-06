@@ -78,10 +78,14 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       AUTO_EDITOR_VERSION: "29.3.1"
-      AUTO_EDITOR_SHA256: ""
+      AUTO_EDITOR_SHA256: "5327d2bc43ae6e81b16d747243d90603fcf1d75dfb60db00ffff250c8bdb292a"
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && ffmpeg -version | head -1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # a pinned static ffmpeg makes the test clip; apt's ffmpeg could change under the byte comparison below
+      - run: pip install imageio-ffmpeg==0.6.0
       - name: auto-editor ${{ env.AUTO_EDITOR_VERSION }} (release binary, sha256 checked)
         run: |
           curl -fsSL -o "$RUNNER_TEMP/auto-editor" \
@@ -92,7 +96,8 @@ jobs:
       - name: Regenerate the fixtures
         run: |
           mkdir -p "$RUNNER_TEMP/fixtures"
-          AUTO_EDITOR="$RUNNER_TEMP/auto-editor" tests/fixtures/auto-editor/make_fixtures.sh "$RUNNER_TEMP/fixtures"
+          FFMPEG="$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" \
+            AUTO_EDITOR="$RUNNER_TEMP/auto-editor" tests/fixtures/auto-editor/make_fixtures.sh "$RUNNER_TEMP/fixtures"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
