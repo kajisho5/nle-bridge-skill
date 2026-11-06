@@ -1,7 +1,9 @@
 """Every input this skill accepts, as one normalised `nle-bridge/timeline@1`.
 
 - `nle-bridge/timeline@1` (frames, or the seconds form; see model.py): what an agent or a person writes. Its
-  `layers` (manifest paths or layers, `nle-bridge/layers@1`) go on upper video tracks (layers.py).
+  `layers` (manifest paths or layers, `nle-bridge/layers@1`) go on upper video tracks (layers.py); its
+  `audio_delivery` (an audio-production-skill response) puts the stems on their own audio tracks and lists the
+  loudness versions (audio_delivery.py).
 - video-production-agent's project IR (`project.json` with `schema_version`, `assets`, `delivery.timelines[]`,
   agent ADR-052): one `timeline.export` record (pick it with `subject` when there are several). Its clips are the
   kept source ranges in programme order; the assets' paths and probe facts come from `assets`; captions from the
@@ -26,6 +28,7 @@ from fractions import Fraction
 from typing import Any, Callable, Dict, List, Optional
 
 from . import edl, fcp7, otio_io, srt
+from .audio_delivery import add_audio_delivery
 from .engine import EngineError
 from .layers import add_layers
 from .multicam import check as check_multicam, from_result, is_multicam_result
@@ -359,6 +362,9 @@ def load(path: str, *, rate: Any = None, subject: Optional[str] = None, prober: 
         check_multicam(tl)
         if doc.get("layers"):  # graphics layers on upper video tracks (layers.py, ADR-010)
             add_layers(tl, doc["layers"], base_dir)
+        ad = doc.get("audio_delivery")
+        if ad and not (isinstance(ad, dict) and "loudness_versions" in ad):  # stems on their own tracks (ADR-012)
+            add_audio_delivery(tl, ad, base_dir)
         return probe_timecodes(tl, prober)
     if kind == "multicam":
         return probe_timecodes(_df(from_result(doc, rate=rate, base_dir=base_dir, prober=prober), drop_frame), prober)

@@ -1,0 +1,28 @@
+{
+  "schema": "audio-production/request@1",
+  "project": {
+    "project_id": "talk",
+    "sources": [{"source_id": "dx", "path": "rec/dialogue.wav"}, {"source_id": "mx", "path": "rec/music.wav"},
+                {"source_id": "fx", "path": "rec/effects.wav"}],
+    "tracks": [{"track_id": "dialogue", "source_id": "dx", "channel_layout": "stereo"},
+               {"track_id": "music", "source_id": "mx", "channel_layout": "stereo"},
+               {"track_id": "effects", "source_id": "fx", "channel_layout": "stereo"}],
+    "operations": [
+      {"op_id": "dx", "type": "GAIN", "inputs": ["track:dialogue"], "parameters": {"gain_db": 0}},
+      {"op_id": "mx", "type": "GAIN", "inputs": ["track:music"], "parameters": {"gain_db": 0}},
+      {"op_id": "fx", "type": "GAIN", "inputs": ["track:effects"], "parameters": {"gain_db": 0}},
+      {"op_id": "mix", "type": "MIX", "inputs": ["op:dx", "op:mx", "op:fx"], "parameters": {"levels": [{"gain_db": 0}, {"gain_db": 0}, {"gain_db": 0}]}},
+      {"op_id": "ebu", "type": "NORMALIZE", "inputs": ["op:mix"], "parameters": {"target_lufs": -23.0, "true_peak_db": -1.0, "tolerance_lufs": 1.0, "profile": "EBU R128"}},
+      {"op_id": "atsc", "type": "NORMALIZE", "inputs": ["op:mix"], "parameters": {"target_lufs": -24.0, "true_peak_db": -2.0, "tolerance_lufs": 1.0, "profile": "ATSC A/85"}},
+      {"op_id": "web", "type": "NORMALIZE", "inputs": ["op:mix"], "parameters": {"target_lufs": -14.0, "true_peak_db": -1.0, "tolerance_lufs": 1.0, "profile": "streaming"}}
+    ],
+    "outputs": [
+      {"output_id": "dialogue", "operation": "op:dx", "path": "deliver/talk_dialogue.wav", "format": "wav"},
+      {"output_id": "music", "operation": "op:mx", "path": "deliver/talk_music.wav", "format": "wav"},
+      {"output_id": "effects", "operation": "op:fx", "path": "deliver/talk_effects.wav", "format": "wav"},
+      {"output_id": "master_ebu_r128", "operation": "op:ebu", "path": "deliver/talk_ebu_r128.wav", "format": "wav"},
+      {"output_id": "master_atsc_a85", "operation": "op:atsc", "path": "deliver/talk_atsc_a85.wav", "format": "wav"},
+      {"output_id": "master_streaming", "operation": "op:web", "path": "deliver/talk_streaming.wav", "format": "wav"}
+    ]
+  }
+}

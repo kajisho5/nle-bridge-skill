@@ -5,7 +5,7 @@ Written on 2026-10-31 from Velisa's ROADMAP ("Premiere Pro and DaVinci Resolve")
 
 ## Where it stands
 
-0.1.0: `export` (OTIO, FCP7 XML, CMX 3600 EDL, SRT sidecar; exact NTSC rates, drop-frame; every loss a named warning, `--strict`), beat-grid markers (bar heads distinct), `conform` (relink manifest, file manifest, deterministic zip, optional media copy; media facts, start timecodes included from ffmpeg-skill 3.0.0, through ffmpeg-skill `probe` when available), `diff` (the editor's returned OTIO / FCP7 XML / EDL against the plan: clips, cut points in frames, markers, offsets from the beat) and `import`, with contract and doctor. Standard library only; opentimelineio is an optional check, and in the tests OTIO's FCP7 / CMX 3600 adapters are a second reader. Not yet imported into a real Premiere or Resolve.
+0.1.0: `export` (OTIO, FCP7 XML, CMX 3600 EDL, SRT sidecar; exact NTSC rates, drop-frame; every loss a named warning, `--strict`), beat-grid markers (bar heads distinct), `conform` (relink manifest, file manifest, deterministic zip, optional media copy; media facts, start timecodes included from ffmpeg-skill 3.0.0, through ffmpeg-skill `probe` when available), `diff` (the editor's returned OTIO / FCP7 XML / EDL against the plan: clips, cut points in frames, markers, offsets from the beat) and `import`, with contract and doctor. Standard library only; opentimelineio is an optional check, and in the tests OTIO's FCP7 / CMX 3600 adapters are a second reader. Unreleased since then: auto-editor's FCP7 XML read (step 13), graphics layers on upper tracks (14), ffmpeg-skill multicam results as a multiclip / OTIO stack (15), audio-production-skill stems and loudness versions in the package (16). Not yet imported into a real Premiere or Resolve.
 
 ## What this repository owns
 
@@ -55,9 +55,10 @@ Reads video-production-agent's project IR (`delivery.timelines[]`, captions, the
   - なぜ要るか：自動切り替えの結果を、編集者が NLE のマルチカム編集で手直しできる
   - Done when: a two-angle fixture opens as one multiclip whose angles line up at the sync offsets (checked by reading it back)
   - Done (ADR-011): ffmpeg-skill's `multicam.py --json` result is read as an input (no new flag). The two-angle fixture (`tests/fixtures/multicam/multicam.json`, camera B at +1.2 s) exports one FCP7 multiclip cut four times with camera B placed 30 frames in, and an OTIO stack per cut; both read back with the angles at 0 and 30 frames and the switch list as the cut (`diff` identical; a re-switched angle is found). The integration job runs the real `multicam.py` and reads its offset back in frames. Not checked: whether Premiere / Resolve open the multiclip (opentimelineio's FCP7 adapter does not read multiclips; step 8)
-- [ ] **16. Stems and loudness versions in the package** — the conform package carries audio-production-skill's stems on their own tracks and lists the loudness versions with their measurements
+- [x] **16. Stems and loudness versions in the package** ([#13](https://github.com/kajisho5/nle-bridge-skill/pull/13); ADR-012) — the conform package carries audio-production-skill's stems on their own tracks and lists the loudness versions with their measurements
   - なぜ要るか：MA に回す素材を、タイムラインと一緒に一式で渡せる
   - Done when: a fixture package lists three stems on three tracks of the timeline
+  - Done (ADR-012): a plan's `audio_delivery` (an audio-production-skill response; no new flag). The fixture package (`tests/fixtures/audio-production/response.json`, written by audio-production-skill 0.4.10 with ffmpeg-skill 3.0.0) has the three stems (dialogue, music, effects) on three audio tracks of the timeline (.json, .otio, .xml), lists them in `manifest.json` `audio.stems`, and lists the three loudness versions (EBU R128, ATSC A/85, streaming) with audio-production's measurements; `--copy-media` copies stems and versions. audio-production's own STEMS / LOUDNESS_SET ops (its steps 8, 9) are not built yet; the response shape is the one every run writes
 
 ## Boundaries
 

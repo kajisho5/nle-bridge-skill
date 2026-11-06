@@ -10,6 +10,7 @@ from .conform import CONFORM_SCHEMA, RELINK_SCHEMA
 from .diff import DIFF_SCHEMA
 from .engine import ENV_DIRS, REQUIRED_TOOLS
 from .export import DEFAULT_FORMATS, FORMATS
+from .audio_delivery import RESPONSE_SCHEMA as AUDIO_RESPONSE_SCHEMA
 from .layers import LAYERS_SCHEMA
 from .model import DEFAULT_START_TC, MARKER_COLORS, TIMELINE_SCHEMA
 
@@ -135,7 +136,8 @@ def contract() -> Dict[str, Any]:
         "inputs": [TIMELINE_SCHEMA, "video-production-agent project IR (delivery.timelines[], ADR-052)",
                    f"{LAYERS_SCHEMA} graphics layer manifests (a plan's `layers`)",
                    "ffmpeg-skill render project (clips[].src)",
-                   "ffmpeg-skill multicam result (multicam.py --json: inputs, offsets_seconds, cuts)", "OTIO JSON", "FCP7 XML", "CMX 3600 EDL (with --fps)"],
+                   "ffmpeg-skill multicam result (multicam.py --json: inputs, offsets_seconds, cuts)",
+                   f"{AUDIO_RESPONSE_SCHEMA} stems and loudness versions (a plan's `audio_delivery`)", "OTIO JSON", "FCP7 XML", "CMX 3600 EDL (with --fps)"],
         "timeline": {"schema": TIMELINE_SCHEMA, "units": "whole frames at an exact rational rate",
                      "default_start_timecode": DEFAULT_START_TC, "marker_colors": list(MARKER_COLORS),
                      "frame_rates": "any; NTSC as exact N/1001; drop-frame at 29.97 and 59.94 only"},
@@ -162,6 +164,14 @@ def contract() -> Dict[str, Any]:
                    "conform": "each layer file is in relink.json (with `layer`) and copied with --copy-media; "
                               "manifest.json lists the layers",
                    "diff": "`layers`: each layer's clip pair (or removed), `summary.layers_changed`"},
+        "audio_delivery": {"input": f"audio-production-skill run --json ({AUDIO_RESPONSE_SCHEMA}): a path, the document, "
+                                    "or {response, stems: [output ids]}, as a plan's `audio_delivery`",
+                           "stems": "each completed output whose last operation is not NORMALIZE (or each one listed in "
+                                    "`stems`): its own audio track named by its output_id, from the programme's first frame",
+                           "loudness_versions": "each output whose last operation is NORMALIZE: listed in manifest.json "
+                                                "`audio` with its target and audio-production's measurement, copied to "
+                                                "media/loudness/ with --copy-media; not on the timeline",
+                           "codes": ["AUDIO_OUTPUT_NOT_COMPLETED", "AUDIO_OUTPUT_NOT_PLACED", "STEM_LENGTH_DIFFERS"]},
         "multicam": {"input": "ffmpeg-skill multicam.py --json (inputs, offsets_seconds, confidence, cuts, drift_ppm)",
                      "timeline": "V1: the switch list, each cut marked {group, angle}; A1: camera 0's sound; "
                                  "`multicam`: the angles with their sync offsets in frames",

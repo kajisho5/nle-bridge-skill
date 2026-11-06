@@ -1,0 +1,2449 @@
+{
+  "schema": "audio-production/response@1",
+  "skill": {
+    "id": "audio-production",
+    "version": "0.4.10"
+  },
+  "ok": true,
+  "status": "ok",
+  "dry_run": false,
+  "plan": {
+    "plan_id": "19da05746a03cfc8f1cfde2cd2a21e313784ca5a7c6557442f478c27433897af",
+    "project_id": "talk",
+    "work_dir": ".audio-production/talk",
+    "graph": {
+      "order": [
+        "track:dialogue",
+        "op:dx",
+        "track:effects",
+        "op:fx",
+        "track:music",
+        "op:mx",
+        "op:mix",
+        "op:atsc",
+        "op:ebu",
+        "op:web"
+      ],
+      "nodes": [
+        {
+          "node_id": "track:dialogue",
+          "type": "SOURCE_TRACK",
+          "inputs": [],
+          "parameters": {
+            "source_id": "dx",
+            "channel_layout": "stereo",
+            "label": null
+          },
+          "implicit": false,
+          "track_id": "dialogue",
+          "source_id": "dx"
+        },
+        {
+          "node_id": "op:dx",
+          "type": "GAIN",
+          "inputs": [
+            "track:dialogue"
+          ],
+          "parameters": {
+            "gain_db": 0.0,
+            "audio_stream": 0
+          },
+          "implicit": false
+        },
+        {
+          "node_id": "track:effects",
+          "type": "SOURCE_TRACK",
+          "inputs": [],
+          "parameters": {
+            "source_id": "fx",
+            "channel_layout": "stereo",
+            "label": null
+          },
+          "implicit": false,
+          "track_id": "effects",
+          "source_id": "fx"
+        },
+        {
+          "node_id": "op:fx",
+          "type": "GAIN",
+          "inputs": [
+            "track:effects"
+          ],
+          "parameters": {
+            "gain_db": 0.0,
+            "audio_stream": 0
+          },
+          "implicit": false
+        },
+        {
+          "node_id": "track:music",
+          "type": "SOURCE_TRACK",
+          "inputs": [],
+          "parameters": {
+            "source_id": "mx",
+            "channel_layout": "stereo",
+            "label": null
+          },
+          "implicit": false,
+          "track_id": "music",
+          "source_id": "mx"
+        },
+        {
+          "node_id": "op:mx",
+          "type": "GAIN",
+          "inputs": [
+            "track:music"
+          ],
+          "parameters": {
+            "gain_db": 0.0,
+            "audio_stream": 0
+          },
+          "implicit": false
+        },
+        {
+          "node_id": "op:mix",
+          "type": "MIX",
+          "inputs": [
+            "op:dx",
+            "op:mx",
+            "op:fx"
+          ],
+          "parameters": {
+            "levels": [
+              {
+                "gain_db": 0.0,
+                "mute": false
+              },
+              {
+                "gain_db": 0.0,
+                "mute": false
+              },
+              {
+                "gain_db": 0.0,
+                "mute": false
+              }
+            ]
+          },
+          "implicit": false
+        },
+        {
+          "node_id": "op:atsc",
+          "type": "NORMALIZE",
+          "inputs": [
+            "op:mix"
+          ],
+          "parameters": {
+            "target_lufs": -24.0,
+            "true_peak_db": -2.0,
+            "tolerance_lufs": 1.0,
+            "profile": "ATSC A/85"
+          },
+          "implicit": false
+        },
+        {
+          "node_id": "op:ebu",
+          "type": "NORMALIZE",
+          "inputs": [
+            "op:mix"
+          ],
+          "parameters": {
+            "target_lufs": -23.0,
+            "true_peak_db": -1.0,
+            "tolerance_lufs": 1.0,
+            "profile": "EBU R128"
+          },
+          "implicit": false
+        },
+        {
+          "node_id": "op:web",
+          "type": "NORMALIZE",
+          "inputs": [
+            "op:mix"
+          ],
+          "parameters": {
+            "target_lufs": -14.0,
+            "true_peak_db": -1.0,
+            "tolerance_lufs": 1.0,
+            "profile": "streaming"
+          },
+          "implicit": false
+        }
+      ],
+      "outputs": {
+        "dialogue": "op:dx",
+        "music": "op:mx",
+        "effects": "op:fx",
+        "master_ebu_r128": "op:ebu",
+        "master_atsc_a85": "op:atsc",
+        "master_streaming": "op:web"
+      }
+    },
+    "sources": {
+      "dx": {
+        "source_id": "dx",
+        "path": "rec/dialogue.wav",
+        "sha256": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+        "size": 768078,
+        "duration": 4.0,
+        "channels": 2,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "channel_layout": null,
+        "has_video": false
+      },
+      "mx": {
+        "source_id": "mx",
+        "path": "rec/music.wav",
+        "sha256": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+        "size": 768078,
+        "duration": 4.0,
+        "channels": 2,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "channel_layout": null,
+        "has_video": false
+      },
+      "fx": {
+        "source_id": "fx",
+        "path": "rec/effects.wav",
+        "sha256": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+        "size": 768078,
+        "duration": 4.0,
+        "channels": 2,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "channel_layout": null,
+        "has_video": false
+      }
+    },
+    "steps": [
+      {
+        "node_id": "op:dx",
+        "operation_id": "ca16e19006c53baf8a545ed9abb589e1e481af60c429468966bd2512c9a36451",
+        "type": "GAIN",
+        "tool": "ffmpeg-skill/audio",
+        "inputs": [
+          "track:dialogue"
+        ],
+        "parameters": {
+          "gain_db": 0.0,
+          "audio_stream": 0
+        },
+        "intermediate": ".audio-production/talk/ca16e19006c53baf.wav",
+        "expected_duration": 4.0
+      },
+      {
+        "node_id": "op:fx",
+        "operation_id": "c9cf50a51522aea4b365b49859c18c67b78751fb4810fce31662f582564fe618",
+        "type": "GAIN",
+        "tool": "ffmpeg-skill/audio",
+        "inputs": [
+          "track:effects"
+        ],
+        "parameters": {
+          "gain_db": 0.0,
+          "audio_stream": 0
+        },
+        "intermediate": ".audio-production/talk/c9cf50a51522aea4.wav",
+        "expected_duration": 4.0
+      },
+      {
+        "node_id": "op:mx",
+        "operation_id": "ce00c4b544c409361aa3bf9cf3576d1b12d4139a3bc6b2387e3d52895684357f",
+        "type": "GAIN",
+        "tool": "ffmpeg-skill/audio",
+        "inputs": [
+          "track:music"
+        ],
+        "parameters": {
+          "gain_db": 0.0,
+          "audio_stream": 0
+        },
+        "intermediate": ".audio-production/talk/ce00c4b544c40936.wav",
+        "expected_duration": 4.0
+      },
+      {
+        "node_id": "op:mix",
+        "operation_id": "3e50a32ba934057f999f3812586e522686ca677a582281e1972a1538fb564123",
+        "type": "MIX",
+        "tool": "ffmpeg-skill/audio",
+        "inputs": [
+          "op:dx",
+          "op:mx",
+          "op:fx"
+        ],
+        "parameters": {
+          "levels": [
+            {
+              "gain_db": 0.0,
+              "mute": false
+            },
+            {
+              "gain_db": 0.0,
+              "mute": false
+            },
+            {
+              "gain_db": 0.0,
+              "mute": false
+            }
+          ]
+        },
+        "intermediate": ".audio-production/talk/3e50a32ba934057f.wav",
+        "expected_duration": 4.0
+      },
+      {
+        "node_id": "op:atsc",
+        "operation_id": "7f7bcddf2781bb4cef7a4a1c248be3c19d3ec7f854697587ddf47d3e72b0b961",
+        "type": "NORMALIZE",
+        "tool": "ffmpeg-skill/loudness",
+        "inputs": [
+          "op:mix"
+        ],
+        "parameters": {
+          "target_lufs": -24.0,
+          "true_peak_db": -2.0,
+          "tolerance_lufs": 1.0,
+          "profile": "ATSC A/85"
+        },
+        "intermediate": ".audio-production/talk/7f7bcddf2781bb4c.wav",
+        "expected_duration": 4.0
+      },
+      {
+        "node_id": "op:ebu",
+        "operation_id": "125d4fa4b8a11aa44a98878f5d800ecf10d1991a21cdc11047e7228797c135c6",
+        "type": "NORMALIZE",
+        "tool": "ffmpeg-skill/loudness",
+        "inputs": [
+          "op:mix"
+        ],
+        "parameters": {
+          "target_lufs": -23.0,
+          "true_peak_db": -1.0,
+          "tolerance_lufs": 1.0,
+          "profile": "EBU R128"
+        },
+        "intermediate": ".audio-production/talk/125d4fa4b8a11aa4.wav",
+        "expected_duration": 4.0
+      },
+      {
+        "node_id": "op:web",
+        "operation_id": "fdda8d3a596265c4cb32c7da6ed21a7605505039c4db353f23eae282187de63b",
+        "type": "NORMALIZE",
+        "tool": "ffmpeg-skill/loudness",
+        "inputs": [
+          "op:mix"
+        ],
+        "parameters": {
+          "target_lufs": -14.0,
+          "true_peak_db": -1.0,
+          "tolerance_lufs": 1.0,
+          "profile": "streaming"
+        },
+        "intermediate": ".audio-production/talk/fdda8d3a596265c4.wav",
+        "expected_duration": 4.0
+      }
+    ],
+    "outputs": [
+      {
+        "output_id": "dialogue",
+        "node_id": "op:dx",
+        "path": "deliver/talk_dialogue.wav",
+        "format": "wav",
+        "tool": "ffmpeg-skill/audio",
+        "required_capabilities": [
+          "encoder:pcm_s16le"
+        ],
+        "expect": {},
+        "expected_duration": 4.0
+      },
+      {
+        "output_id": "music",
+        "node_id": "op:mx",
+        "path": "deliver/talk_music.wav",
+        "format": "wav",
+        "tool": "ffmpeg-skill/audio",
+        "required_capabilities": [
+          "encoder:pcm_s16le"
+        ],
+        "expect": {},
+        "expected_duration": 4.0
+      },
+      {
+        "output_id": "effects",
+        "node_id": "op:fx",
+        "path": "deliver/talk_effects.wav",
+        "format": "wav",
+        "tool": "ffmpeg-skill/audio",
+        "required_capabilities": [
+          "encoder:pcm_s16le"
+        ],
+        "expect": {},
+        "expected_duration": 4.0
+      },
+      {
+        "output_id": "master_ebu_r128",
+        "node_id": "op:ebu",
+        "path": "deliver/talk_ebu_r128.wav",
+        "format": "wav",
+        "tool": "ffmpeg-skill/audio",
+        "required_capabilities": [
+          "encoder:pcm_s16le"
+        ],
+        "expect": {},
+        "expected_duration": 4.0
+      },
+      {
+        "output_id": "master_atsc_a85",
+        "node_id": "op:atsc",
+        "path": "deliver/talk_atsc_a85.wav",
+        "format": "wav",
+        "tool": "ffmpeg-skill/audio",
+        "required_capabilities": [
+          "encoder:pcm_s16le"
+        ],
+        "expect": {},
+        "expected_duration": 4.0
+      },
+      {
+        "output_id": "master_streaming",
+        "node_id": "op:web",
+        "path": "deliver/talk_streaming.wav",
+        "format": "wav",
+        "tool": "ffmpeg-skill/audio",
+        "required_capabilities": [
+          "encoder:pcm_s16le"
+        ],
+        "expect": {},
+        "expected_duration": 4.0
+      }
+    ],
+    "required_capabilities": [
+      "encoder:pcm_s16le",
+      "ffmpeg",
+      "ffmpeg-skill",
+      "ffprobe",
+      "filter:amix",
+      "filter:loudnorm",
+      "filter:volume"
+    ],
+    "tool_versions": {
+      "ffmpeg-skill": "3.0.0",
+      "ffmpeg-skill_contract": "2.0",
+      "ffmpeg": "6.1.1-3ubuntu5",
+      "ffprobe": "6.1.1-3ubuntu5"
+    },
+    "intermediate_format": "wav",
+    "duration_tolerance": 0.1
+  },
+  "results": [
+    {
+      "node_id": "track:dialogue",
+      "operation_id": "7dd390b4ccc6990df4ee7912a52a78521dc33118d426a35d7cfd0b5517150b6f",
+      "type": "SOURCE_TRACK",
+      "implicit": false,
+      "tool": "ffmpeg-skill/probe",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "inputs": [],
+      "parameters": {
+        "source_id": "dx",
+        "channel_layout": "stereo",
+        "label": null
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+      ],
+      "seconds": 0.0,
+      "artifact": {
+        "path": "rec/dialogue.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+      },
+      "tool_commands_observed": [],
+      "measurements": {
+        "channels": 2,
+        "sample_rate": 48000,
+        "duration": 4.0,
+        "has_video": false
+      }
+    },
+    {
+      "node_id": "op:dx",
+      "operation_id": "ca16e19006c53baf8a545ed9abb589e1e481af60c429468966bd2512c9a36451",
+      "type": "GAIN",
+      "implicit": false,
+      "tool": "ffmpeg-skill/audio",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe",
+        "filter:volume",
+        "encoder:pcm_s16le"
+      ],
+      "inputs": [
+        "track:dialogue"
+      ],
+      "parameters": {
+        "gain_db": 0.0,
+        "audio_stream": 0
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+      ],
+      "seconds": 0.326,
+      "artifact": {
+        "path": ".audio-production/talk/ca16e19006c53baf.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+      },
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i rec/dialogue.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest .audio-production/talk/ca16e19006c53baf.wav"
+      ],
+      "measurements": {}
+    },
+    {
+      "node_id": "track:effects",
+      "operation_id": "0fd42804b720b77f4256939a50e899c46f393cdda6856a50170d8ab35107ef68",
+      "type": "SOURCE_TRACK",
+      "implicit": false,
+      "tool": "ffmpeg-skill/probe",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "inputs": [],
+      "parameters": {
+        "source_id": "fx",
+        "channel_layout": "stereo",
+        "label": null
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+      ],
+      "seconds": 0.0,
+      "artifact": {
+        "path": "rec/effects.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+      },
+      "tool_commands_observed": [],
+      "measurements": {
+        "channels": 2,
+        "sample_rate": 48000,
+        "duration": 4.0,
+        "has_video": false
+      }
+    },
+    {
+      "node_id": "op:fx",
+      "operation_id": "c9cf50a51522aea4b365b49859c18c67b78751fb4810fce31662f582564fe618",
+      "type": "GAIN",
+      "implicit": false,
+      "tool": "ffmpeg-skill/audio",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe",
+        "filter:volume",
+        "encoder:pcm_s16le"
+      ],
+      "inputs": [
+        "track:effects"
+      ],
+      "parameters": {
+        "gain_db": 0.0,
+        "audio_stream": 0
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+      ],
+      "seconds": 0.346,
+      "artifact": {
+        "path": ".audio-production/talk/c9cf50a51522aea4.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+      },
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i rec/effects.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest .audio-production/talk/c9cf50a51522aea4.wav"
+      ],
+      "measurements": {}
+    },
+    {
+      "node_id": "track:music",
+      "operation_id": "0ab4646aa4da4a3a8cfdba51ccb63aa36ae899e65e5bf3b2902bbe3d2e9515d4",
+      "type": "SOURCE_TRACK",
+      "implicit": false,
+      "tool": "ffmpeg-skill/probe",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "inputs": [],
+      "parameters": {
+        "source_id": "mx",
+        "channel_layout": "stereo",
+        "label": null
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+      ],
+      "seconds": 0.0,
+      "artifact": {
+        "path": "rec/music.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+      },
+      "tool_commands_observed": [],
+      "measurements": {
+        "channels": 2,
+        "sample_rate": 48000,
+        "duration": 4.0,
+        "has_video": false
+      }
+    },
+    {
+      "node_id": "op:mx",
+      "operation_id": "ce00c4b544c409361aa3bf9cf3576d1b12d4139a3bc6b2387e3d52895684357f",
+      "type": "GAIN",
+      "implicit": false,
+      "tool": "ffmpeg-skill/audio",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe",
+        "filter:volume",
+        "encoder:pcm_s16le"
+      ],
+      "inputs": [
+        "track:music"
+      ],
+      "parameters": {
+        "gain_db": 0.0,
+        "audio_stream": 0
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+      ],
+      "seconds": 0.4,
+      "artifact": {
+        "path": ".audio-production/talk/ce00c4b544c40936.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+      },
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i rec/music.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest .audio-production/talk/ce00c4b544c40936.wav"
+      ],
+      "measurements": {}
+    },
+    {
+      "node_id": "op:mix",
+      "operation_id": "3e50a32ba934057f999f3812586e522686ca677a582281e1972a1538fb564123",
+      "type": "MIX",
+      "implicit": false,
+      "tool": "ffmpeg-skill/audio",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe",
+        "filter:amix",
+        "encoder:pcm_s16le"
+      ],
+      "inputs": [
+        "op:dx",
+        "op:mx",
+        "op:fx"
+      ],
+      "parameters": {
+        "levels": [
+          {
+            "gain_db": 0.0,
+            "mute": false
+          },
+          {
+            "gain_db": 0.0,
+            "mute": false
+          },
+          {
+            "gain_db": 0.0,
+            "mute": false
+          }
+        ]
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 1
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 2
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+        "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+        "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+      ],
+      "seconds": 1.048,
+      "artifact": {
+        "path": ".audio-production/talk/3e50a32ba934057f.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f"
+      },
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/ca16e19006c53baf.wav -i .audio-production/talk/ce00c4b544c40936.wav -filter_complex '[0:a:0]anull[main];[1:a:0]volume=0dB,atrim=0:4.000[music];[main][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mix];[mix]apad,atrim=0:4.000[out]' -map '[out]' -c:a pcm_s16le -shortest .audio-production/talk/3e50a32ba934057f.mix1.wav",
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/3e50a32ba934057f.mix1.wav -i .audio-production/talk/c9cf50a51522aea4.wav -filter_complex '[0:a:0]anull[main];[1:a:0]volume=0dB,atrim=0:4.000[music];[main][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mix];[mix]apad,atrim=0:4.000[out]' -map '[out]' -c:a pcm_s16le -shortest .audio-production/talk/3e50a32ba934057f.wav"
+      ],
+      "measurements": {}
+    },
+    {
+      "node_id": "op:atsc",
+      "operation_id": "7f7bcddf2781bb4cef7a4a1c248be3c19d3ec7f854697587ddf47d3e72b0b961",
+      "type": "NORMALIZE",
+      "implicit": false,
+      "tool": "ffmpeg-skill/loudness",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe",
+        "filter:loudnorm",
+        "encoder:pcm_s16le"
+      ],
+      "inputs": [
+        "op:mix"
+      ],
+      "parameters": {
+        "target_lufs": -24.0,
+        "true_peak_db": -2.0,
+        "tolerance_lufs": 1.0,
+        "profile": "ATSC A/85"
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 1
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 2
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f"
+      ],
+      "seconds": 0.889,
+      "artifact": {
+        "path": ".audio-production/talk/7f7bcddf2781bb4c.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "8ba3a08631ad9f0365cc3fe95c5a93e3819f71677d6ccaf905e888cb32d328af"
+      },
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/3e50a32ba934057f.wav -vn -af loudnorm=I=-24.0:TP=-2.0:LRA=11.0:print_format=json -f null -",
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/3e50a32ba934057f.wav -af loudnorm=I=-24.0:TP=-2.0:LRA=11.0:measured_I=-28.75:measured_TP=-25.56:measured_LRA=0.00:measured_thresh=-38.75:offset=-0.05:linear=true:print_format=summary,atrim=duration=4.000000 -ar 48000 -vn -c:a pcm_s16le .audio-production/talk/7f7bcddf2781bb4c.wav",
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/7f7bcddf2781bb4c.wav -vn -af loudnorm=I=-24.0:TP=-2.0:LRA=11.0:print_format=json -f null -"
+      ],
+      "measurements": {
+        "loudness": {
+          "measured_by": "ffmpeg-skill/loudness (NORMALIZE result)",
+          "target_lufs": -24.0,
+          "true_peak_db": -2.0,
+          "tolerance_lufs": 1.0,
+          "silent": false,
+          "integrated_lufs": -24.05,
+          "true_peak_dbtp": -20.86,
+          "loudness_range_lu": 0.0
+        }
+      }
+    },
+    {
+      "node_id": "op:ebu",
+      "operation_id": "125d4fa4b8a11aa44a98878f5d800ecf10d1991a21cdc11047e7228797c135c6",
+      "type": "NORMALIZE",
+      "implicit": false,
+      "tool": "ffmpeg-skill/loudness",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe",
+        "filter:loudnorm",
+        "encoder:pcm_s16le"
+      ],
+      "inputs": [
+        "op:mix"
+      ],
+      "parameters": {
+        "target_lufs": -23.0,
+        "true_peak_db": -1.0,
+        "tolerance_lufs": 1.0,
+        "profile": "EBU R128"
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 1
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 2
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f"
+      ],
+      "seconds": 0.878,
+      "artifact": {
+        "path": ".audio-production/talk/125d4fa4b8a11aa4.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "3e35ebfa6a6ac24c8f1c182008f9a90bbffcbaa6da16fcbd4cb174e48e34c780"
+      },
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/3e50a32ba934057f.wav -vn -af loudnorm=I=-23.0:TP=-1.0:LRA=11.0:print_format=json -f null -",
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/3e50a32ba934057f.wav -af loudnorm=I=-23.0:TP=-1.0:LRA=11.0:measured_I=-28.75:measured_TP=-25.56:measured_LRA=0.00:measured_thresh=-38.75:offset=-0.05:linear=true:print_format=summary,atrim=duration=4.000000 -ar 48000 -vn -c:a pcm_s16le .audio-production/talk/125d4fa4b8a11aa4.wav",
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/125d4fa4b8a11aa4.wav -vn -af loudnorm=I=-23.0:TP=-1.0:LRA=11.0:print_format=json -f null -"
+      ],
+      "measurements": {
+        "loudness": {
+          "measured_by": "ffmpeg-skill/loudness (NORMALIZE result)",
+          "target_lufs": -23.0,
+          "true_peak_db": -1.0,
+          "tolerance_lufs": 1.0,
+          "silent": false,
+          "integrated_lufs": -23.05,
+          "true_peak_dbtp": -19.86,
+          "loudness_range_lu": 0.0
+        }
+      }
+    },
+    {
+      "node_id": "op:web",
+      "operation_id": "fdda8d3a596265c4cb32c7da6ed21a7605505039c4db353f23eae282187de63b",
+      "type": "NORMALIZE",
+      "implicit": false,
+      "tool": "ffmpeg-skill/loudness",
+      "required_capabilities": [
+        "ffmpeg-skill",
+        "ffmpeg",
+        "ffprobe",
+        "filter:loudnorm",
+        "encoder:pcm_s16le"
+      ],
+      "inputs": [
+        "op:mix"
+      ],
+      "parameters": {
+        "target_lufs": -14.0,
+        "true_peak_db": -1.0,
+        "tolerance_lufs": 1.0,
+        "profile": "streaming"
+      },
+      "status": "completed",
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 1
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 2
+        }
+      ],
+      "expected_duration": 4.0,
+      "input_hashes": [
+        "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f"
+      ],
+      "seconds": 0.838,
+      "artifact": {
+        "path": ".audio-production/talk/fdda8d3a596265c4.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "d5f42717c275880e1782a79b4729b266eef331a97f8066c27d1a3a07e85ca8c0"
+      },
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/3e50a32ba934057f.wav -vn -af loudnorm=I=-14.0:TP=-1.0:LRA=11.0:print_format=json -f null -",
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/3e50a32ba934057f.wav -af loudnorm=I=-14.0:TP=-1.0:LRA=11.0:measured_I=-28.75:measured_TP=-25.56:measured_LRA=0.00:measured_thresh=-38.75:offset=-0.05:linear=true:print_format=summary,atrim=duration=4.000000 -ar 48000 -vn -c:a pcm_s16le .audio-production/talk/fdda8d3a596265c4.wav",
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/fdda8d3a596265c4.wav -vn -af loudnorm=I=-14.0:TP=-1.0:LRA=11.0:print_format=json -f null -"
+      ],
+      "measurements": {
+        "loudness": {
+          "measured_by": "ffmpeg-skill/loudness (NORMALIZE result)",
+          "target_lufs": -14.0,
+          "true_peak_db": -1.0,
+          "tolerance_lufs": 1.0,
+          "silent": false,
+          "integrated_lufs": -14.05,
+          "true_peak_dbtp": -10.86,
+          "loudness_range_lu": 0.0
+        }
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "output_id": "dialogue",
+      "status": "completed",
+      "path": "deliver/talk_dialogue.wav",
+      "format": "wav",
+      "artifact": {
+        "path": "deliver/talk_dialogue.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+      },
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        }
+      ],
+      "seconds": 0.317,
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/ca16e19006c53baf.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_dialogue.wav"
+      ],
+      "provenance": {
+        "skill": "audio-production",
+        "skill_version": "0.4.10",
+        "tool": "ffmpeg-skill/audio",
+        "tool_versions": {
+          "ffmpeg-skill": "3.0.0",
+          "ffmpeg-skill_contract": "2.0",
+          "ffmpeg": "6.1.1-3ubuntu5",
+          "ffprobe": "6.1.1-3ubuntu5"
+        },
+        "output_hash": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+        "node_id": "op:dx",
+        "operation_id": "ca16e19006c53baf8a545ed9abb589e1e481af60c429468966bd2512c9a36451",
+        "operations": [
+          {
+            "node_id": "op:dx",
+            "operation_id": "ca16e19006c53baf8a545ed9abb589e1e481af60c429468966bd2512c9a36451",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+            ],
+            "output_hash": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:dialogue",
+            "operation_id": "7dd390b4ccc6990df4ee7912a52a78521dc33118d426a35d7cfd0b5517150b6f",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "dx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+            ],
+            "output_hash": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          }
+        ],
+        "sources": {
+          "dx": {
+            "path": "rec/dialogue.wav",
+            "sha256": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "size": 768078
+          }
+        }
+      }
+    },
+    {
+      "output_id": "music",
+      "status": "completed",
+      "path": "deliver/talk_music.wav",
+      "format": "wav",
+      "artifact": {
+        "path": "deliver/talk_music.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+      },
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        }
+      ],
+      "seconds": 0.32,
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/ce00c4b544c40936.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_music.wav"
+      ],
+      "provenance": {
+        "skill": "audio-production",
+        "skill_version": "0.4.10",
+        "tool": "ffmpeg-skill/audio",
+        "tool_versions": {
+          "ffmpeg-skill": "3.0.0",
+          "ffmpeg-skill_contract": "2.0",
+          "ffmpeg": "6.1.1-3ubuntu5",
+          "ffprobe": "6.1.1-3ubuntu5"
+        },
+        "output_hash": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+        "node_id": "op:mx",
+        "operation_id": "ce00c4b544c409361aa3bf9cf3576d1b12d4139a3bc6b2387e3d52895684357f",
+        "operations": [
+          {
+            "node_id": "op:mx",
+            "operation_id": "ce00c4b544c409361aa3bf9cf3576d1b12d4139a3bc6b2387e3d52895684357f",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+            ],
+            "output_hash": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:music",
+            "operation_id": "0ab4646aa4da4a3a8cfdba51ccb63aa36ae899e65e5bf3b2902bbe3d2e9515d4",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "mx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+            ],
+            "output_hash": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          }
+        ],
+        "sources": {
+          "mx": {
+            "path": "rec/music.wav",
+            "sha256": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "size": 768078
+          }
+        }
+      }
+    },
+    {
+      "output_id": "effects",
+      "status": "completed",
+      "path": "deliver/talk_effects.wav",
+      "format": "wav",
+      "artifact": {
+        "path": "deliver/talk_effects.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+      },
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        }
+      ],
+      "seconds": 0.348,
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/c9cf50a51522aea4.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_effects.wav"
+      ],
+      "provenance": {
+        "skill": "audio-production",
+        "skill_version": "0.4.10",
+        "tool": "ffmpeg-skill/audio",
+        "tool_versions": {
+          "ffmpeg-skill": "3.0.0",
+          "ffmpeg-skill_contract": "2.0",
+          "ffmpeg": "6.1.1-3ubuntu5",
+          "ffprobe": "6.1.1-3ubuntu5"
+        },
+        "output_hash": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+        "node_id": "op:fx",
+        "operation_id": "c9cf50a51522aea4b365b49859c18c67b78751fb4810fce31662f582564fe618",
+        "operations": [
+          {
+            "node_id": "op:fx",
+            "operation_id": "c9cf50a51522aea4b365b49859c18c67b78751fb4810fce31662f582564fe618",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:effects",
+            "operation_id": "0fd42804b720b77f4256939a50e899c46f393cdda6856a50170d8ab35107ef68",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "fx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          }
+        ],
+        "sources": {
+          "fx": {
+            "path": "rec/effects.wav",
+            "sha256": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "size": 768078
+          }
+        }
+      }
+    },
+    {
+      "output_id": "master_ebu_r128",
+      "status": "completed",
+      "path": "deliver/talk_ebu_r128.wav",
+      "format": "wav",
+      "artifact": {
+        "path": "deliver/talk_ebu_r128.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "3e35ebfa6a6ac24c8f1c182008f9a90bbffcbaa6da16fcbd4cb174e48e34c780"
+      },
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 1
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 2
+        }
+      ],
+      "seconds": 0.359,
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/125d4fa4b8a11aa4.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_ebu_r128.wav"
+      ],
+      "provenance": {
+        "skill": "audio-production",
+        "skill_version": "0.4.10",
+        "tool": "ffmpeg-skill/audio",
+        "tool_versions": {
+          "ffmpeg-skill": "3.0.0",
+          "ffmpeg-skill_contract": "2.0",
+          "ffmpeg": "6.1.1-3ubuntu5",
+          "ffprobe": "6.1.1-3ubuntu5"
+        },
+        "output_hash": "3e35ebfa6a6ac24c8f1c182008f9a90bbffcbaa6da16fcbd4cb174e48e34c780",
+        "node_id": "op:ebu",
+        "operation_id": "125d4fa4b8a11aa44a98878f5d800ecf10d1991a21cdc11047e7228797c135c6",
+        "operations": [
+          {
+            "node_id": "op:ebu",
+            "operation_id": "125d4fa4b8a11aa44a98878f5d800ecf10d1991a21cdc11047e7228797c135c6",
+            "type": "NORMALIZE",
+            "status": "completed",
+            "tool": "ffmpeg-skill/loudness",
+            "parameters": {
+              "target_lufs": -23.0,
+              "true_peak_db": -1.0,
+              "tolerance_lufs": 1.0,
+              "profile": "EBU R128"
+            },
+            "input_hashes": [
+              "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f"
+            ],
+            "output_hash": "3e35ebfa6a6ac24c8f1c182008f9a90bbffcbaa6da16fcbd4cb174e48e34c780",
+            "measurements": {
+              "loudness": {
+                "measured_by": "ffmpeg-skill/loudness (NORMALIZE result)",
+                "target_lufs": -23.0,
+                "true_peak_db": -1.0,
+                "tolerance_lufs": 1.0,
+                "silent": false,
+                "integrated_lufs": -23.05,
+                "true_peak_dbtp": -19.86,
+                "loudness_range_lu": 0.0
+              }
+            }
+          },
+          {
+            "node_id": "op:mix",
+            "operation_id": "3e50a32ba934057f999f3812586e522686ca677a582281e1972a1538fb564123",
+            "type": "MIX",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "levels": [
+                {
+                  "gain_db": 0.0,
+                  "mute": false
+                },
+                {
+                  "gain_db": 0.0,
+                  "mute": false
+                },
+                {
+                  "gain_db": 0.0,
+                  "mute": false
+                }
+              ]
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f",
+            "measurements": {}
+          },
+          {
+            "node_id": "op:fx",
+            "operation_id": "c9cf50a51522aea4b365b49859c18c67b78751fb4810fce31662f582564fe618",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:effects",
+            "operation_id": "0fd42804b720b77f4256939a50e899c46f393cdda6856a50170d8ab35107ef68",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "fx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          },
+          {
+            "node_id": "op:mx",
+            "operation_id": "ce00c4b544c409361aa3bf9cf3576d1b12d4139a3bc6b2387e3d52895684357f",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+            ],
+            "output_hash": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:music",
+            "operation_id": "0ab4646aa4da4a3a8cfdba51ccb63aa36ae899e65e5bf3b2902bbe3d2e9515d4",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "mx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+            ],
+            "output_hash": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          },
+          {
+            "node_id": "op:dx",
+            "operation_id": "ca16e19006c53baf8a545ed9abb589e1e481af60c429468966bd2512c9a36451",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+            ],
+            "output_hash": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:dialogue",
+            "operation_id": "7dd390b4ccc6990df4ee7912a52a78521dc33118d426a35d7cfd0b5517150b6f",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "dx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+            ],
+            "output_hash": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          }
+        ],
+        "sources": {
+          "dx": {
+            "path": "rec/dialogue.wav",
+            "sha256": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "size": 768078
+          },
+          "mx": {
+            "path": "rec/music.wav",
+            "sha256": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "size": 768078
+          },
+          "fx": {
+            "path": "rec/effects.wav",
+            "sha256": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "size": 768078
+          }
+        }
+      }
+    },
+    {
+      "output_id": "master_atsc_a85",
+      "status": "completed",
+      "path": "deliver/talk_atsc_a85.wav",
+      "format": "wav",
+      "artifact": {
+        "path": "deliver/talk_atsc_a85.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "8ba3a08631ad9f0365cc3fe95c5a93e3819f71677d6ccaf905e888cb32d328af"
+      },
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 1
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 2
+        }
+      ],
+      "seconds": 0.349,
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/7f7bcddf2781bb4c.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_atsc_a85.wav"
+      ],
+      "provenance": {
+        "skill": "audio-production",
+        "skill_version": "0.4.10",
+        "tool": "ffmpeg-skill/audio",
+        "tool_versions": {
+          "ffmpeg-skill": "3.0.0",
+          "ffmpeg-skill_contract": "2.0",
+          "ffmpeg": "6.1.1-3ubuntu5",
+          "ffprobe": "6.1.1-3ubuntu5"
+        },
+        "output_hash": "8ba3a08631ad9f0365cc3fe95c5a93e3819f71677d6ccaf905e888cb32d328af",
+        "node_id": "op:atsc",
+        "operation_id": "7f7bcddf2781bb4cef7a4a1c248be3c19d3ec7f854697587ddf47d3e72b0b961",
+        "operations": [
+          {
+            "node_id": "op:atsc",
+            "operation_id": "7f7bcddf2781bb4cef7a4a1c248be3c19d3ec7f854697587ddf47d3e72b0b961",
+            "type": "NORMALIZE",
+            "status": "completed",
+            "tool": "ffmpeg-skill/loudness",
+            "parameters": {
+              "target_lufs": -24.0,
+              "true_peak_db": -2.0,
+              "tolerance_lufs": 1.0,
+              "profile": "ATSC A/85"
+            },
+            "input_hashes": [
+              "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f"
+            ],
+            "output_hash": "8ba3a08631ad9f0365cc3fe95c5a93e3819f71677d6ccaf905e888cb32d328af",
+            "measurements": {
+              "loudness": {
+                "measured_by": "ffmpeg-skill/loudness (NORMALIZE result)",
+                "target_lufs": -24.0,
+                "true_peak_db": -2.0,
+                "tolerance_lufs": 1.0,
+                "silent": false,
+                "integrated_lufs": -24.05,
+                "true_peak_dbtp": -20.86,
+                "loudness_range_lu": 0.0
+              }
+            }
+          },
+          {
+            "node_id": "op:mix",
+            "operation_id": "3e50a32ba934057f999f3812586e522686ca677a582281e1972a1538fb564123",
+            "type": "MIX",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "levels": [
+                {
+                  "gain_db": 0.0,
+                  "mute": false
+                },
+                {
+                  "gain_db": 0.0,
+                  "mute": false
+                },
+                {
+                  "gain_db": 0.0,
+                  "mute": false
+                }
+              ]
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f",
+            "measurements": {}
+          },
+          {
+            "node_id": "op:fx",
+            "operation_id": "c9cf50a51522aea4b365b49859c18c67b78751fb4810fce31662f582564fe618",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:effects",
+            "operation_id": "0fd42804b720b77f4256939a50e899c46f393cdda6856a50170d8ab35107ef68",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "fx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          },
+          {
+            "node_id": "op:mx",
+            "operation_id": "ce00c4b544c409361aa3bf9cf3576d1b12d4139a3bc6b2387e3d52895684357f",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+            ],
+            "output_hash": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:music",
+            "operation_id": "0ab4646aa4da4a3a8cfdba51ccb63aa36ae899e65e5bf3b2902bbe3d2e9515d4",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "mx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+            ],
+            "output_hash": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          },
+          {
+            "node_id": "op:dx",
+            "operation_id": "ca16e19006c53baf8a545ed9abb589e1e481af60c429468966bd2512c9a36451",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+            ],
+            "output_hash": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:dialogue",
+            "operation_id": "7dd390b4ccc6990df4ee7912a52a78521dc33118d426a35d7cfd0b5517150b6f",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "dx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+            ],
+            "output_hash": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          }
+        ],
+        "sources": {
+          "dx": {
+            "path": "rec/dialogue.wav",
+            "sha256": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "size": 768078
+          },
+          "mx": {
+            "path": "rec/music.wav",
+            "sha256": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "size": 768078
+          },
+          "fx": {
+            "path": "rec/effects.wav",
+            "sha256": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "size": 768078
+          }
+        }
+      }
+    },
+    {
+      "output_id": "master_streaming",
+      "status": "completed",
+      "path": "deliver/talk_streaming.wav",
+      "format": "wav",
+      "artifact": {
+        "path": "deliver/talk_streaming.wav",
+        "duration": 4.0,
+        "channels": 2,
+        "channel_layout": null,
+        "sample_rate": 48000,
+        "codec": "pcm_s16le",
+        "size": 768078,
+        "sha256": "d5f42717c275880e1782a79b4729b266eef331a97f8066c27d1a3a07e85ca8c0"
+      },
+      "segments": [
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "dx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 0
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "mx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 1
+        },
+        {
+          "timeline": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "source_id": "fx",
+          "source": {
+            "start": 0.0,
+            "end": 4.0
+          },
+          "input_index": 2
+        }
+      ],
+      "seconds": 0.359,
+      "tool_commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/fdda8d3a596265c4.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_streaming.wav"
+      ],
+      "provenance": {
+        "skill": "audio-production",
+        "skill_version": "0.4.10",
+        "tool": "ffmpeg-skill/audio",
+        "tool_versions": {
+          "ffmpeg-skill": "3.0.0",
+          "ffmpeg-skill_contract": "2.0",
+          "ffmpeg": "6.1.1-3ubuntu5",
+          "ffprobe": "6.1.1-3ubuntu5"
+        },
+        "output_hash": "d5f42717c275880e1782a79b4729b266eef331a97f8066c27d1a3a07e85ca8c0",
+        "node_id": "op:web",
+        "operation_id": "fdda8d3a596265c4cb32c7da6ed21a7605505039c4db353f23eae282187de63b",
+        "operations": [
+          {
+            "node_id": "op:web",
+            "operation_id": "fdda8d3a596265c4cb32c7da6ed21a7605505039c4db353f23eae282187de63b",
+            "type": "NORMALIZE",
+            "status": "completed",
+            "tool": "ffmpeg-skill/loudness",
+            "parameters": {
+              "target_lufs": -14.0,
+              "true_peak_db": -1.0,
+              "tolerance_lufs": 1.0,
+              "profile": "streaming"
+            },
+            "input_hashes": [
+              "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f"
+            ],
+            "output_hash": "d5f42717c275880e1782a79b4729b266eef331a97f8066c27d1a3a07e85ca8c0",
+            "measurements": {
+              "loudness": {
+                "measured_by": "ffmpeg-skill/loudness (NORMALIZE result)",
+                "target_lufs": -14.0,
+                "true_peak_db": -1.0,
+                "tolerance_lufs": 1.0,
+                "silent": false,
+                "integrated_lufs": -14.05,
+                "true_peak_dbtp": -10.86,
+                "loudness_range_lu": 0.0
+              }
+            }
+          },
+          {
+            "node_id": "op:mix",
+            "operation_id": "3e50a32ba934057f999f3812586e522686ca677a582281e1972a1538fb564123",
+            "type": "MIX",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "levels": [
+                {
+                  "gain_db": 0.0,
+                  "mute": false
+                },
+                {
+                  "gain_db": 0.0,
+                  "mute": false
+                },
+                {
+                  "gain_db": 0.0,
+                  "mute": false
+                }
+              ]
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "b789c6c394b821e218bb6ab17d25403b63ab525e42b231151221a8756693824f",
+            "measurements": {}
+          },
+          {
+            "node_id": "op:fx",
+            "operation_id": "c9cf50a51522aea4b365b49859c18c67b78751fb4810fce31662f582564fe618",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:effects",
+            "operation_id": "0fd42804b720b77f4256939a50e899c46f393cdda6856a50170d8ab35107ef68",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "fx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3"
+            ],
+            "output_hash": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          },
+          {
+            "node_id": "op:mx",
+            "operation_id": "ce00c4b544c409361aa3bf9cf3576d1b12d4139a3bc6b2387e3d52895684357f",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+            ],
+            "output_hash": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:music",
+            "operation_id": "0ab4646aa4da4a3a8cfdba51ccb63aa36ae899e65e5bf3b2902bbe3d2e9515d4",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "mx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae"
+            ],
+            "output_hash": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          },
+          {
+            "node_id": "op:dx",
+            "operation_id": "ca16e19006c53baf8a545ed9abb589e1e481af60c429468966bd2512c9a36451",
+            "type": "GAIN",
+            "status": "completed",
+            "tool": "ffmpeg-skill/audio",
+            "parameters": {
+              "gain_db": 0.0,
+              "audio_stream": 0
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+            ],
+            "output_hash": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "measurements": {}
+          },
+          {
+            "node_id": "track:dialogue",
+            "operation_id": "7dd390b4ccc6990df4ee7912a52a78521dc33118d426a35d7cfd0b5517150b6f",
+            "type": "SOURCE_TRACK",
+            "status": "completed",
+            "tool": "ffmpeg-skill/probe",
+            "parameters": {
+              "source_id": "dx",
+              "channel_layout": "stereo",
+              "label": null
+            },
+            "input_hashes": [
+              "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc"
+            ],
+            "output_hash": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "measurements": {
+              "channels": 2,
+              "sample_rate": 48000,
+              "duration": 4.0,
+              "has_video": false
+            }
+          }
+        ],
+        "sources": {
+          "dx": {
+            "path": "rec/dialogue.wav",
+            "sha256": "69022af7a6fc5a72950aa6a67a408ddb98ecd76b6bb0c9410cc617c0274126cc",
+            "size": 768078
+          },
+          "mx": {
+            "path": "rec/music.wav",
+            "sha256": "9eb888473e4bd55c05d6f7a562f8f35ab640169bd02bd316b6bafd0d2ecf72ae",
+            "size": 768078
+          },
+          "fx": {
+            "path": "rec/effects.wav",
+            "sha256": "3dea426bda61a6a2574c7885325345c4cd512c6b423d436317034c3c2dfdcac3",
+            "size": 768078
+          }
+        }
+      }
+    }
+  ],
+  "tool_runs": [
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.158,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.147,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.158,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.326,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i rec/dialogue.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest .audio-production/talk/ca16e19006c53baf.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.153,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.346,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i rec/effects.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest .audio-production/talk/c9cf50a51522aea4.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.172,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.4,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i rec/music.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest .audio-production/talk/ce00c4b544c40936.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.177,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.507,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/ca16e19006c53baf.wav -i .audio-production/talk/ce00c4b544c40936.wav -filter_complex '[0:a:0]anull[main];[1:a:0]volume=0dB,atrim=0:4.000[music];[main][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mix];[mix]apad,atrim=0:4.000[out]' -map '[out]' -c:a pcm_s16le -shortest .audio-production/talk/3e50a32ba934057f.mix1.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.541,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/3e50a32ba934057f.mix1.wav -i .audio-production/talk/c9cf50a51522aea4.wav -filter_complex '[0:a:0]anull[main];[1:a:0]volume=0dB,atrim=0:4.000[music];[main][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mix];[mix]apad,atrim=0:4.000[out]' -map '[out]' -c:a pcm_s16le -shortest .audio-production/talk/3e50a32ba934057f.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.168,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/loudness",
+      "exit_code": 0,
+      "seconds": 0.889,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/3e50a32ba934057f.wav -vn -af loudnorm=I=-24.0:TP=-2.0:LRA=11.0:print_format=json -f null -",
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/3e50a32ba934057f.wav -af loudnorm=I=-24.0:TP=-2.0:LRA=11.0:measured_I=-28.75:measured_TP=-25.56:measured_LRA=0.00:measured_thresh=-38.75:offset=-0.05:linear=true:print_format=summary,atrim=duration=4.000000 -ar 48000 -vn -c:a pcm_s16le .audio-production/talk/7f7bcddf2781bb4c.wav",
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/7f7bcddf2781bb4c.wav -vn -af loudnorm=I=-24.0:TP=-2.0:LRA=11.0:print_format=json -f null -"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.149,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/loudness",
+      "exit_code": 0,
+      "seconds": 0.878,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/3e50a32ba934057f.wav -vn -af loudnorm=I=-23.0:TP=-1.0:LRA=11.0:print_format=json -f null -",
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/3e50a32ba934057f.wav -af loudnorm=I=-23.0:TP=-1.0:LRA=11.0:measured_I=-28.75:measured_TP=-25.56:measured_LRA=0.00:measured_thresh=-38.75:offset=-0.05:linear=true:print_format=summary,atrim=duration=4.000000 -ar 48000 -vn -c:a pcm_s16le .audio-production/talk/125d4fa4b8a11aa4.wav",
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/125d4fa4b8a11aa4.wav -vn -af loudnorm=I=-23.0:TP=-1.0:LRA=11.0:print_format=json -f null -"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.161,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/loudness",
+      "exit_code": 0,
+      "seconds": 0.838,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/3e50a32ba934057f.wav -vn -af loudnorm=I=-14.0:TP=-1.0:LRA=11.0:print_format=json -f null -",
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/3e50a32ba934057f.wav -af loudnorm=I=-14.0:TP=-1.0:LRA=11.0:measured_I=-28.75:measured_TP=-25.56:measured_LRA=0.00:measured_thresh=-38.75:offset=-0.05:linear=true:print_format=summary,atrim=duration=4.000000 -ar 48000 -vn -c:a pcm_s16le .audio-production/talk/fdda8d3a596265c4.wav",
+        "/usr/bin/ffmpeg -hide_banner -nostdin -i .audio-production/talk/fdda8d3a596265c4.wav -vn -af loudnorm=I=-14.0:TP=-1.0:LRA=11.0:print_format=json -f null -"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.168,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.317,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/ca16e19006c53baf.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_dialogue.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.127,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.32,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/ce00c4b544c40936.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_music.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.174,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.348,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/c9cf50a51522aea4.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_effects.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.158,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.359,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/125d4fa4b8a11aa4.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_ebu_r128.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.168,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.349,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/7f7bcddf2781bb4c.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_atsc_a85.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.17,
+      "commands_observed": []
+    },
+    {
+      "tool": "ffmpeg-skill/audio",
+      "exit_code": 0,
+      "seconds": 0.359,
+      "commands_observed": [
+        "/usr/bin/ffmpeg -hide_banner -loglevel error -nostdin -y -i .audio-production/talk/fdda8d3a596265c4.wav -filter_complex '[0:a:0]anull[main]' -map '[main]' -c:a pcm_s16le -shortest deliver/talk_streaming.wav"
+      ]
+    },
+    {
+      "tool": "ffmpeg-skill/probe",
+      "exit_code": 0,
+      "seconds": 0.159,
+      "commands_observed": []
+    }
+  ],
+  "cleanup": {
+    "policy": "keep",
+    "applied": false,
+    "work_dir": ".audio-production/talk"
+  },
+  "warnings": []
+}

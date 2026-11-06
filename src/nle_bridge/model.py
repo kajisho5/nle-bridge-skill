@@ -299,7 +299,7 @@ def normalise(doc: Dict[str, Any], *, base_dir: Optional[str] = None, rate: Any 
                 item["speed"] = round(speed, 6)
             if it.get("gain_db") is not None:
                 item["gain_db"] = float(it["gain_db"])
-            for k in ("effects", "text", "layer", "multicam"):
+            for k in ("effects", "text", "layer", "multicam", "stem"):
                 if it.get(k):
                     item[k] = it[k]
             if it.get("transition_in"):
@@ -350,6 +350,8 @@ def normalise(doc: Dict[str, Any], *, base_dir: Optional[str] = None, rate: Any 
         out["source"] = d["source"]
     if d.get("multicam"):  # the angles of a multicam (multicam.py): kept as written, checked by multicam.check
         out["multicam"] = d["multicam"]
+    if isinstance(d.get("audio_delivery"), dict) and "loudness_versions" in d["audio_delivery"]:
+        out["audio_delivery"] = d["audio_delivery"]  # already read (audio_delivery.py): stems and loudness versions
     return out
 
 
