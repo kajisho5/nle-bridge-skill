@@ -140,12 +140,58 @@ def relink_entries(tl: Dict[str, Any], probe: Optional[Callable[[str], Optional[
         layer = next((it["layer"] for t in tl["tracks"] for it in t["items"] if it.get("asset") == aid and it.get("layer")), None)
         if layer:  # a graphics layer (layers.py): what it is and where it sits, which the timelines may not carry
             e["layer"] = layer
+        stem = next((it["stem"] for t in tl["tracks"] for it in t["items"] if it.get("asset") == aid and it.get("stem")), None)
+        if stem:  # an audio-production stem (audio_delivery.py)
+            e["stem"] = stem
         out.append(e)
     return {"schema": RELINK_SCHEMA, "rate": tl["rate"], "drop_frame": drop, "media": out, "warnings": warns}
 
 
 def _asset_of(tl: Dict[str, Any], item_id: str) -> Optional[str]:
     return next((it.get("asset") for t in tl["tracks"] for it in t["items"] if it["id"] == item_id), None)
+
+
+def _audio_delivery(tl: Dict[str, Any], relink: Dict[str, Any], out_dir: str, copy_media: bool, hash_media: bool,
+                    warns: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The audio-production delivery of the plan (audio_delivery.py) for manifest.json: each stem with its track and
+    package path, each loudness version with its target and measurement, copied to media/loudness/ with
+    --copy-media and its sha256 checked against audio-production's."""
+    ad = tl.get("audio_delivery")
+    if not ad:
+        return None
+    pkg = {e["asset"]: e for e in relink["media"]}
+    track_of = {it["id"]: t["name"] for t in tl["tracks"] for it in t["items"]}
+    stems = [{"output_id": s["output_id"], "track": track_of.get(s["item"]), "item": s["item"], "file": s["path"],
+              "package_path": (pkg.get(s["item"]) or {}).get("package_path"), "sha256": s.get("sha256"),
+              "duration": s.get("duration"), "channels": s.get("channels"), "sample_rate": s.get("sample_rate")}
+             for s in ad.get("stems") or []]
+    versions = []
+    for v in ad.get("loudness_versions") or []:
+        exists = os.path.isfile(v["path"])
+        out = {"output_id": v["output_id"], "file": v["path"], "exists": exists, "package_path": None,
+               "sha256": v.get("sha256"), "duration": v.get("duration"), "channels": v.get("channels"),
+               "sample_rate": v.get("sample_rate"), "target": v.get("target"), "measured": v.get("measured"),
+               "within_target": v.get("within_target")}
+        if not exists:
+            warns.append(warning("MEDIA_MISSING", f"loudness version {v['output_id']}: {v['path']} does not exist here",
+                                 item=v["output_id"]))
+        elif hash_media:
+            h = sha256_file(v["path"])
+            if v.get("sha256") and _hex(v["sha256"]) != h:
+                warns.append(warning("MEDIA_CHANGED", f"loudness version {v['output_id']}: sha256 differs from "
+                                     "audio-production's: the file is not the one it measured", item=v["output_id"]))
+            out["sha256"] = h
+        if exists and copy_media:
+            d = os.path.join(out_dir, "media", "loudness")
+            os.makedirs(d, exist_ok=True)
+            dest = os.path.join(d, base_name(v["path"]))
+            if os.path.lexists(dest):
+                os.unlink(dest)
+            shutil.copyfile(v["path"], dest)
+            out["package_path"] = f"media/loudness/{base_name(v['path'])}"
+        versions.append(out)
+    return {"from": "audio-production-skill", "skill": ad.get("skill"), "response": ad.get("response"),
+            "stems": stems, "loudness_versions": versions}
 
 
 def package(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optional[str] = None,
@@ -192,6 +238,7 @@ def package(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optio
             shutil.copyfile(e["original_path"], dest)
             e["package_path"] = f"media/{fname}"
             tl_out["assets"][e["asset"]]["path"] = dest
+    audio = _audio_delivery(tl, relink, out_dir, copy_media, hash_media, warns)
     stem = name or tl["name"]
     written = write_files(tl_out, os.path.join(out_dir, "timeline"), formats, name=stem, overwrite=True, inputs=inputs,
                           dissolves=dissolves)
@@ -212,6 +259,8 @@ def package(tl: Dict[str, Any], out_dir: str, formats: List[str], *, name: Optio
     manifest = {"schema": CONFORM_SCHEMA, "skill": "nle-bridge-skill", "skill_version": __version__,
                 "timeline": summary(tl_out), "formats": [f["format"] for f in written["files"]],
                 "media_copied": copy_media, "files": files, "warnings": warns, **(extra or {})}
+    if audio:
+        manifest["audio"] = audio
     lays = layer_list(tl)
     if lays:
         pkg = {e["asset"]: e["package_path"] for e in relink["media"]}

@@ -321,3 +321,37 @@ The fixture `tests/fixtures/multicam/multicam.json` (the `--json` shape, two cam
 ### Not decided here
 
 Whether Premiere and Resolve open this multiclip, and keep the active angle per cut (step 8; if they do not, the OTIO stack and the EDL still carry the cut). More than one multicam per timeline; per-angle sound.
+
+## ADR-012 Stems and loudness versions from audio-production-skill in the package
+
+Checked 2026-11-06 against audio-production-skill 0.4.10 (`e52d76d`: README "Output schema (`audio-production/response@1`)", `src/audio_production/executor.py` `_export` / `_provenance_chain`, `ECOSYSTEM_ROADMAP.md` steps 8 STEMS and 9 LOUDNESS_SET; read only) and a response it wrote.
+
+### Requirements
+
+- Roadmap step 16: the conform package carries audio-production-skill's stems on their own tracks and lists the loudness versions with their measurements, so the material for the mix (MA) goes out with the timeline as one set.
+- Done when: a fixture package lists three stems on three tracks of the timeline.
+- No new CLI flag (`argv` is fatal drift for video-production-agent's pin).
+
+### What audio-production gives
+
+STEMS (its step 8) and LOUDNESS_SET (step 9) are not built yet, but the response they will write is the one every run writes today: `outputs[]` with `output_id`, `status`, `path`, `artifact` {duration, channels, sample_rate, codec, size, sha256} and `provenance.operations` (the chain from the output back to its sources, the first entry the output's own node with its `type`, `parameters` and `measurements`). A NORMALIZE node re-measures its result (`measurements.loudness`: integrated_lufs, true_peak_dbtp, loudness_range_lu). So three stems are three outputs of a request, and three loudness versions three NORMALIZE outputs of one mix.
+
+The fixture `tests/fixtures/audio-production/response.json` is what audio-production-skill 0.4.10 wrote with ffmpeg-skill 3.0.0 (FFmpeg 6.1.1) for `request.json` beside it: dialogue, music and effects (4 s sine tones, 48 kHz stereo) as GAIN outputs, their MIX normalised to EBU R128 (-23 LUFS / -1 dBTP), ATSC A/85 (-24 LKFS / -2 dBTP) and a streaming target (-14 LUFS / -1 dBTP). Its absolute paths are made relative to the fixture folder; nothing else is changed.
+
+### Decision
+
+- **Given in the plan.** A `nle-bridge/timeline@1` plan's `audio_delivery`: the response's path (relative to the plan), the document, or `{response, stems: [output ids]}`. A response that is not `ok` is refused.
+- **Stems** are the completed outputs whose last operation is not NORMALIZE, or exactly those listed in `stems`. Each goes on its own audio track after the plan's, named by its `output_id`, as one clip from the programme's first frame for its length (`stem-<output_id>`, carrying `stem` {output_id, node_id, type, channels, sample_rate}); its sha256 and size come from the response, so `relink.json` names a file that is not the one audio-production wrote (`MEDIA_CHANGED`). A stem more than a frame longer or shorter than the programme is `STEM_LENGTH_DIFFERS`.
+- **Loudness versions** are the outputs whose last operation is NORMALIZE (when `stems` is given, those not listed in it). They are alternatives of one mix, so they are not placed on the timeline. `manifest.json` `audio.loudness_versions` lists each with its file, sha256 (checked against the response's when the file is here), target (target_lufs, true_peak_db, loudness_range_lu, tolerance_lufs, profile), measurement (integrated_lufs, true_peak_dbtp, loudness_range_lu, measured_by) and `within_target` (within the tolerance, the true peak at or under the limit). With `--copy-media` they are copied to `media/loudness/`.
+- **Other outputs** (when `stems` leaves a non-NORMALIZE output out) and outputs that did not complete are named (`AUDIO_OUTPUT_NOT_PLACED`, `AUDIO_OUTPUT_NOT_COMPLETED`), never placed.
+- **Measurements are audio-production's.** This skill does not measure loudness (it would need ffmpeg-skill `loudness` and a decision about which measurement wins); it carries the numbers it was given and says who measured them.
+- **Timelines.** The stem tracks are ordinary audio tracks: OTIO and FCP7 XML carry all of them, an EDL four audio tracks in all (`TRACK_NOT_EXPORTED` beyond that). `diff` compares them like any clip.
+- **Contract.** Additive only: an `audio_delivery` block and an `inputs` entry.
+
+### Result
+
+The fixture plan (one picture clip of 4 s at 25 fps) with the fixture response packs three stem tracks (dialogue, music, effects; 0 to 100 frames) in `timeline/talk.json`, `.otio` and `.xml`, lists them in `manifest.json` `audio.stems` with their tracks, and lists the three loudness versions with audio-production's measurements (-23.05, -24.05 and -14.05 LUFS, each within its target). With `--copy-media` the stems are in `media/` and the versions in `media/loudness/`.
+
+### Not decided here
+
+A multitrack file (one WAV / MOV with a track per stem, audio-production step 8 with ffmpeg-skill's multitrack audio): read when it exists. Re-measuring a version here.

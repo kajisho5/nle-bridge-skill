@@ -1073,6 +1073,101 @@ class MulticamTests(TmpCase):
             self.assertIn(why, str(cm.exception))
 
 
+AUDIO_FIXTURE = ROOT / "tests" / "fixtures" / "audio-production" / "response.json"
+
+
+def stems_plan(response=str(AUDIO_FIXTURE)):
+    """A 4 s programme at 25 fps with the stems and loudness versions of the audio-production fixture."""
+    return {"schema": "nle-bridge/timeline@1", "name": "talk", "rate": "25",
+            "assets": {"cam": {"path": "/media/talk.mov", "duration": 10}},
+            "tracks": [{"kind": "video", "items": [{"id": "c1", "asset": "cam", "in": 1, "out": 5}]}],
+            "audio_delivery": response}
+
+
+class StemTests(TmpCase):
+    """audio-production-skill's stems on their own tracks and its loudness versions in the package (roadmap step 16,
+    ADR-012). The fixture is the response audio-production-skill 0.4.10 wrote with ffmpeg-skill 3.0.0
+    (tests/fixtures/audio-production/request.json), its paths made relative."""
+
+    STEMS = [("dialogue", "stem-dialogue"), ("music", "stem-music"), ("effects", "stem-effects")]
+
+    def test_package_lists_three_stems_on_three_tracks(self):
+        plan_path = self.write("plan.json", stems_plan())
+        out = os.path.join(self.tmp, "pkg")
+        code, doc, raw = run_cli("conform", plan_path, "-o", out, "--no-probe", "--json")
+        self.assertEqual(code, 0, raw)
+        man = json.loads(Path(out, "manifest.json").read_text(encoding="utf-8"))
+        audio = man["audio"]
+        self.assertEqual([(s["output_id"], s["track"], s["item"]) for s in audio["stems"]],
+                         [("dialogue", "dialogue", "stem-dialogue"), ("music", "music", "stem-music"),
+                          ("effects", "effects", "stem-effects")])
+        self.assertEqual(audio["skill"], {"id": "audio-production", "version": "0.4.10"})
+        tl = load(str(Path(out, "timeline", "talk.json")))
+        audio_tracks = [t for t in tl["tracks"] if t["kind"] == "audio"]
+        self.assertEqual([(t["name"], [(i["id"], i["record_in"], i["record_out"]) for i in t["items"]]) for t in audio_tracks],
+                         [(n, [(i, 0, 100)]) for n, i in self.STEMS])
+        # in the timelines too: three audio tracks of the stems, from the programme's first frame
+        for fmt in ("otio", "xml"):
+            back = load(str(Path(out, "timeline", f"talk.{fmt}")))
+            self.assertEqual([[(i["id"], i["record_in"], i["record_out"]) for i in t["items"]]
+                              for t in back["tracks"] if t["kind"] == "audio"], [[(i, 0, 100)] for _, i in self.STEMS], fmt)
+        rel = {m["asset"]: m for m in doc["relink"]["media"]}
+        self.assertEqual(rel["stem-music"]["stem"]["type"], "GAIN")
+        self.assertEqual(rel["stem-music"]["sha256"], json.loads(AUDIO_FIXTURE.read_text(encoding="utf-8"))["outputs"][1]["artifact"]["sha256"])
+        # the loudness versions with their targets and audio-production's measurements
+        self.assertEqual([(v["output_id"], v["target"]["target_lufs"], v["target"]["true_peak_db"], v["measured"]["integrated_lufs"],
+                           v["within_target"]) for v in audio["loudness_versions"]],
+                         [("master_ebu_r128", -23.0, -1.0, -23.05, True), ("master_atsc_a85", -24.0, -2.0, -24.05, True),
+                          ("master_streaming", -14.0, -1.0, -14.05, True)])
+        self.assertEqual(audio["loudness_versions"][1]["target"]["profile"], "ATSC A/85")
+
+    def test_copy_media_carries_stems_and_versions(self):
+        fx = os.path.join(self.tmp, "audio")
+        os.makedirs(os.path.join(fx, "deliver"))
+        shutil.copy(AUDIO_FIXTURE, fx)
+        doc = json.loads(AUDIO_FIXTURE.read_text(encoding="utf-8"))
+        for o in doc["outputs"]:
+            Path(fx, o["path"]).write_bytes(b"not the measured file")
+        plan_path = self.write("plan.json", stems_plan("audio/response.json"))
+        out = os.path.join(self.tmp, "pkg")
+        code, res, raw = run_cli("conform", plan_path, "-o", out, "--no-probe", "--copy-media", "--json")
+        self.assertEqual(code, 0, raw)
+        man = json.loads(Path(out, "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual([v["package_path"] for v in man["audio"]["loudness_versions"]],
+                         ["media/loudness/talk_ebu_r128.wav", "media/loudness/talk_atsc_a85.wav",
+                          "media/loudness/talk_streaming.wav"])
+        self.assertEqual([s["package_path"] for s in man["audio"]["stems"]],
+                         ["media/talk_dialogue.wav", "media/talk_music.wav", "media/talk_effects.wav"])
+        self.assertTrue(Path(out, "media", "loudness", "talk_streaming.wav").is_file())
+        changed = sorted(w["item"] for w in res["warnings"] if w["code"] == "MEDIA_CHANGED")
+        self.assertEqual(changed, sorted(["master_atsc_a85", "master_ebu_r128", "master_streaming", "stem-dialogue",
+                                          "stem-effects", "stem-music"]))
+
+    def test_export_and_diff_with_the_stems(self):
+        plan_path, files, doc = self.export(stems_plan(), "otio,fcp7,edl")
+        for fmt in ("otio", "fcp7", "edl"):
+            d = diff(load(plan_path), load_returned(load(plan_path), files[fmt]))
+            self.assertTrue(d["summary"]["identical"], (fmt, d["summary"], d["added"], d["removed"]))
+
+    def test_choosing_the_stems_and_refusals(self):
+        p = stems_plan({"response": str(AUDIO_FIXTURE), "stems": ["dialogue", "music"]})
+        tl = load(self.write("plan.json", p))
+        self.assertEqual([t["name"] for t in tl["tracks"] if t["kind"] == "audio"], ["dialogue", "music"])
+        self.assertEqual([w["item"] for w in tl["warnings"] if w["code"] == "AUDIO_OUTPUT_NOT_PLACED"], ["effects"])
+        self.assertEqual(len(tl["audio_delivery"]["loudness_versions"]), 3)
+        doc = json.loads(AUDIO_FIXTURE.read_text(encoding="utf-8"))
+        for change, why in ((lambda d: d.update(ok=False, status="error"), "did not succeed"),
+                            (lambda d: d.update(schema="x"), "not an audio-production/response@1"),
+                            (None, "no output nope")):
+            bad = copy.deepcopy(doc)
+            if change:
+                change(bad)
+            spec = self.write("r.json", bad) if change else {"response": str(AUDIO_FIXTURE), "stems": ["nope"]}
+            with self.assertRaises(NleBridgeError) as cm:
+                load(self.write("bad.json", stems_plan(spec)))
+            self.assertIn(why, str(cm.exception))
+
+
 # ------------------------------------------------------------------------------------------------ inputs
 def agent_ir(media_dir):
     return {"schema_version": "1.0", "project": {"id": "talk"},
