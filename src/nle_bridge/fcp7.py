@@ -14,6 +14,11 @@ write) and gives the incoming clip its `transition_in`.
 
 What it does not: marker colours (FCP7 had none; xmeml has no colour element), so bar heads and beats are told
 apart by name (`Bar N`, `Beat N.b`) and comment, and a `MARKER_COLOR_NOT_EXPORTED` warning says so.
+
+Reading, what a file carries and a plan does not keep is a warning: clip labels, links between picture and sound,
+the sequence audio format, audio written one track per channel (Premiere's and auto-editor's exploded tracks), a
+composite mode other than normal, a non-square pixel aspect ratio, besides speed, filters, titles and transitions.
+`pathurl` may be a file URL or a bare path (auto-editor writes the latter; ADR-009).
 """
 from __future__ import annotations
 
@@ -374,6 +379,13 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
     for (tname, label), ids in labels.items():
         warns.append(warning("LABEL_NOT_IMPORTED", f"{tname}: the clip label {label} on {len(ids)} clip(s) is not taken "
                              "into the plan", item=ids[0] if len(ids) == 1 else None, fmt="fcp7"))
+    exploded = [f"A{i + 1}" for i, t in enumerate(media.findall("audio/track") if media is not None else [])
+                if t.get("currentExplodedTrackIndex") is not None or t.find("outputchannelindex") is not None]
+    if exploded:
+        warns.append(warning("CHANNEL_TRACKS_NOT_IMPORTED", f"{', '.join(exploded)} are the channels of stereo tracks "
+                             "written one track per channel (Premiere's exploded tracks): each is read as a whole clip "
+                             "of the file, the channel it plays is not kept; diff folds the copies into one clip",
+                             fmt="fcp7"))
     if linked:
         warns.append(warning("LINKS_NOT_IMPORTED", f"the links between picture and sound clipitems ({linked} clip(s)) "
                              "are not kept: the plan has no links, and diff pairs clips by media and range", fmt="fcp7"))

@@ -19,6 +19,7 @@ Run `nle-bridge <command> ... --json` (installed by `pip install -e .`; `pip ins
 | ...and how far the cuts are off the beat | add `--beats beats.json` |
 | The editor's cut as the next plan | add `--timeline-out plan_v2.json` |
 | Any timeline as JSON | `nle-bridge import file.otio -o timeline.json --json` (`--fps` for an EDL) |
+| A cut auto-editor made (its `--export premiere` XML) | `nle-bridge import cut.xml --json`, or `diff plan.json cut.xml` (its labels, links and per-channel tracks are named in `warnings` / `not_imported`) |
 | What this skill declares | `nle-bridge contract --json` |
 
 ## How to use it well
