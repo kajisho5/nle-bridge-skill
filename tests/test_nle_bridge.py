@@ -785,6 +785,74 @@ class StereoPairTests(TmpCase):
         self.assertEqual(next(c for c in d["clips"] if c["plan_id"] == "mus")["status"], "unchanged")
 
 
+AUTO_EDITOR_FIXTURES = ROOT / "tests" / "fixtures" / "auto-editor"
+AUTO_EDITOR_RATES = {"2997": "30000/1001", "25": "25"}
+
+
+def auto_editor_cuts(name):
+    """The cut list auto-editor reports for a fixture (its own v1 export: [start, end, speed] source frames; 99999 is
+    a cut), as (source_in, source_out, record_in, record_out) of the kept ranges."""
+    doc = json.loads((AUTO_EDITOR_FIXTURES / f"{name}.v1.json").read_text(encoding="utf-8"))
+    out, pos = [], 0
+    for start, end, speed in doc["chunks"]:
+        if speed == 1.0:
+            out.append((start, end, pos, pos + end - start))
+            pos += end - start
+    return out
+
+
+class AutoEditorTests(TmpCase):
+    """The FCP7 XML auto-editor 29.3.1 writes for Premiere (`--export premiere`) of a clip with two silences, made by
+    tests/fixtures/auto-editor/make_fixtures.sh and checked byte for byte in CI (roadmap step 13, ADR-009)."""
+
+    def test_imports_the_cut_list_auto_editor_reports(self):
+        for r, rate in AUTO_EDITOR_RATES.items():
+            name = f"talk_{r}"
+            cuts = auto_editor_cuts(name)
+            self.assertEqual(len(cuts), 3)  # two silences removed
+            out = os.path.join(self.tmp, f"{name}.json")
+            code, doc, raw = run_cli("import", AUTO_EDITOR_FIXTURES / f"{name}.xml", "-o", out, "--json")
+            self.assertEqual(code, 0, raw)
+            self.assertEqual((doc["rate"], doc["drop_frame"]), (rate, False))
+            self.assertEqual([t["name"] for t in doc["tracks"]], ["V1", "A1", "A2"])  # stereo written one track per channel
+            for t in doc["tracks"]:
+                self.assertEqual([(i["source_in"], i["source_out"], i["record_in"], i["record_out"]) for i in t["items"]],
+                                 cuts, (name, t["name"]))
+            self.assertEqual(doc["assets"]["m1"]["path"], f"/tmp/nle-bridge-auto-editor/{name}.mov")  # a bare path
+            # every element auto-editor writes that the plan does not keep is named
+            self.assertEqual(sorted({w["code"] for w in doc["warnings"]}),
+                             ["AUDIO_FORMAT_NOT_IMPORTED", "CHANNEL_TRACKS_NOT_IMPORTED", "LABEL_NOT_IMPORTED",
+                              "LINKS_NOT_IMPORTED"])
+            self.assertEqual(load(out)["tracks"][0]["items"][1]["source_in"], cuts[1][0])
+
+    def test_diff_against_a_plan_built_from_its_cuts_reports_no_change(self):
+        for r, rate in AUTO_EDITOR_RATES.items():
+            name = f"talk_{r}"
+            cuts = auto_editor_cuts(name)
+            items = [{"id": f"c{i + 1}", "asset": "talk", "source_in": a, "source_out": b, "record_in": c, "record_out": d}
+                     for i, (a, b, c, d) in enumerate(cuts)]
+            plan = {"schema": "nle-bridge/timeline@1", "name": name, "rate": rate, "start_timecode": "00:00:00:00",
+                    "assets": {"talk": {"path": f"/media/{name}.mov"}},
+                    "tracks": [{"kind": "video", "items": items},
+                               {"kind": "audio", "items": [dict(it, id=it["id"] + "a") for it in items]}]}
+            plan_path = self.write(f"{name}_plan.json", plan)
+            code, d, raw = run_cli("diff", plan_path, AUTO_EDITOR_FIXTURES / f"{name}.xml", "--json")
+            self.assertEqual(code, 0, raw)
+            s = d["summary"]
+            self.assertTrue(s["identical"], (name, s))
+            self.assertEqual((s["clips_unchanged"], s["clips_changed"], s["clips_added"], s["clips_removed"],
+                              s["cuts_moved"], s["channel_clips_folded"]), (6, 0, 0, 0, 0, 3))
+            self.assertEqual(d["media"]["matched"], {"m1": "talk"})
+            self.assertEqual(sorted(c["plan_frame"] for c in d["cuts"]), [cuts[0][3], cuts[1][3]])
+            # one frame trimmed off the second kept range is found
+            xml = (AUTO_EDITOR_FIXTURES / f"{name}.xml").read_text(encoding="utf-8")
+            end2 = cuts[1][3]
+            trimmed = xml.replace(f"<end>{end2}</end>", f"<end>{end2 - 1}</end>", 1)
+            d = diff(load(plan_path), load(self.write(f"{name}_trim.xml", trimmed)))
+            c2 = next(c for c in d["clips"] if c["plan_id"] == "c2")
+            self.assertEqual((c2["changes"], c2["delta_frames"]["record_out"]), (["trimmed"], -1))
+
+
 # ------------------------------------------------------------------------------------------------ inputs
 def agent_ir(media_dir):
     return {"schema_version": "1.0", "project": {"id": "talk"},

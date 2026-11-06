@@ -14,6 +14,11 @@ write) and gives the incoming clip its `transition_in`.
 
 What it does not: marker colours (FCP7 had none; xmeml has no colour element), so bar heads and beats are told
 apart by name (`Bar N`, `Beat N.b`) and comment, and a `MARKER_COLOR_NOT_EXPORTED` warning says so.
+
+Reading, what a file carries and a plan does not keep is a warning: clip labels, links between picture and sound,
+the sequence audio format, audio written one track per channel (Premiere's and auto-editor's exploded tracks), a
+composite mode other than normal, a non-square pixel aspect ratio, besides speed, filters, titles and transitions.
+`pathurl` may be a file URL or a bare path (auto-editor writes the latter; ADR-009).
 """
 from __future__ import annotations
 
@@ -274,6 +279,8 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
 
     tracks: List[Dict[str, Any]] = []
     seen_ids: set = set()
+    labels: Dict[Tuple[str, str], List[str]] = {}  # (track, label) -> the clips that carry it
+    linked = 0
     media = seq.find("media")
     for kind in ("video", "audio"):
         for ti, t in enumerate(media.findall(f"{kind}/track") if media is not None else []):
@@ -342,6 +349,15 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
                     warns.append(warning("SPEED_NOT_IMPORTED", f"{it['name']}: media length {cout - cin} != sequence "
                                          f"length {e - s} frames (a speed change) is not taken into the plan",
                                          item=iid, fmt="fcp7"))
+                label = " ".join((x.text or "").strip() for x in el.findall("labels/*") if (x.text or "").strip())
+                if label:
+                    labels.setdefault((tname, label), []).append(iid)
+                mode = (_txt(el, "compositemode") or "normal").lower()
+                if mode != "normal":
+                    warns.append(warning("COMPOSITE_NOT_IMPORTED", f"{it['name']}: composite mode {mode} is not taken into "
+                                         "the plan (it is read as normal)", item=iid, fmt="fcp7"))
+                if el.find("link") is not None:
+                    linked += 1
                 for eff in el.findall("filter/effect"):
                     eid = _txt(eff, "effectid") or _txt(eff, "name") or ""
                     if eid == "audiolevels":
@@ -360,6 +376,28 @@ def read(text: str, *, name_hint: str = "timeline") -> Dict[str, Any]:
                 items.append(it)
             # Premiere writes one track per audio channel: a stereo clip is two linked clipitems on A1 and A2.
             tracks.append({"kind": kind, "name": f"{'V' if kind == 'video' else 'A'}{ti + 1}", "items": items})
+    for (tname, label), ids in labels.items():
+        warns.append(warning("LABEL_NOT_IMPORTED", f"{tname}: the clip label {label} on {len(ids)} clip(s) is not taken "
+                             "into the plan", item=ids[0] if len(ids) == 1 else None, fmt="fcp7"))
+    exploded = [f"A{i + 1}" for i, t in enumerate(media.findall("audio/track") if media is not None else [])
+                if t.get("currentExplodedTrackIndex") is not None or t.find("outputchannelindex") is not None]
+    if exploded:
+        warns.append(warning("CHANNEL_TRACKS_NOT_IMPORTED", f"{', '.join(exploded)} are the channels of stereo tracks "
+                             "written one track per channel (Premiere's exploded tracks): each is read as a whole clip "
+                             "of the file, the channel it plays is not kept; diff folds the copies into one clip",
+                             fmt="fcp7"))
+    if linked:
+        warns.append(warning("LINKS_NOT_IMPORTED", f"the links between picture and sound clipitems ({linked} clip(s)) "
+                             "are not kept: the plan has no links, and diff pairs clips by media and range", fmt="fcp7"))
+    afmt = media.find("audio/format/samplecharacteristics") if media is not None else None
+    if afmt is not None and (_txt(afmt, "samplerate") or _txt(afmt, "depth")):
+        warns.append(warning("AUDIO_FORMAT_NOT_IMPORTED", f"the sequence audio format ({_txt(afmt, 'samplerate') or '?'} "
+                             f"Hz, {_txt(afmt, 'depth') or '?'} bit) is not in the plan; the NLE sets its own",
+                             fmt="fcp7"))
+    par = _txt(media, "video/format/samplecharacteristics/pixelaspectratio") if media is not None else None
+    if par and par.lower() != "square":
+        warns.append(warning("PIXEL_ASPECT_NOT_IMPORTED", f"the sequence pixel aspect ratio {par} is not in the plan "
+                             "(square is assumed)", fmt="fcp7"))
     markers = []
     for m in seq.findall("marker"):
         at = int(float(_txt(m, "in") or 0))
