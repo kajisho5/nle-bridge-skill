@@ -1,6 +1,6 @@
 # Roadmap — nle-bridge-skill
 
-Part of the [Velisa](https://github.com/kajisho5/Velisa/blob/main/docs/ecosystem/ROADMAP.md) ecosystem: department **納品 (Delivery)**, `planned` in `ecosystem.json` until Velisa updates it.
+Part of the [Velisa](https://github.com/kajisho5/Velisa/blob/main/docs/ecosystem/ROADMAP.md) ecosystem: department **納品 (Delivery)**, status `active` (in `ecosystem.json` since 2026-10-31).
 Written on 2026-10-31 from Velisa's ROADMAP ("Premiere Pro and DaVinci Resolve") and `ecosystem.json`, video-production-agent ADR-052 (timeline export) and ADR-054 (beat-snapped takes), and ffmpeg-skill `render --export-timeline` (all read only). Each step below is meant to be one pull request; tick it off by linking the PR.
 
 ## Where it stands
@@ -59,10 +59,12 @@ Reads video-production-agent's project IR (`delivery.timelines[]`, captions, the
   - なぜ要るか：MA に回す素材を、タイムラインと一緒に一式で渡せる
   - Done when: a fixture package lists three stems on three tracks of the timeline
   - Done (ADR-012): a plan's `audio_delivery` (an audio-production-skill response; no new flag). The fixture package (`tests/fixtures/audio-production/response.json`, written by audio-production-skill 0.4.10 with ffmpeg-skill 3.0.0) has the three stems (dialogue, music, effects) on three audio tracks of the timeline (.json, .otio, .xml), lists them in `manifest.json` `audio.stems`, and lists the three loudness versions (EBU R128, ATSC A/85, streaming) with audio-production's measurements; `--copy-media` copies stems and versions. audio-production's own STEMS / LOUDNESS_SET ops (its steps 8, 9) are not built yet; the response shape is the one every run writes
+- [ ] **17. Cut-list export and the NLE round trip, written down** — ffmpeg-skill owns cut-list export (`カットリスト書き出し`: FCPXML / EDL / OTIO from a render project, `render --export-timeline`); this repository owns the NLE round trip (FCP7 XML, `conform`, `diff`, `import`, and the inputs ffmpeg-skill's export cannot carry: multicam, graphics layers, stems) ([Velisa ownership decisions 2026-11-12](https://github.com/kajisho5/Velisa/blob/main/docs/ecosystem/DECISION_LOG.md)). This repository's OTIO / EDL `export` stays for those inputs
+  - Done when: README and SKILL.md say which one to use for a plain cut list and which for a round trip
 
 ## Boundaries
 
-Rendering and FCPXML are ffmpeg-skill's; captions are subtitle-skill's; music and its beat measurement are sound-design-skill's and ffmpeg-skill's; planning is video-production-agent's.
+Rendering, FCPXML and plain cut-list export are ffmpeg-skill's (the NLE round trip is this repository's); captions are subtitle-skill's; music and its beat measurement are sound-design-skill's and ffmpeg-skill's; planning is video-production-agent's.
 
 ---
 Engine for every media operation: [ffmpeg-skill](https://github.com/kajisho5/ffmpeg-skill) (3.x, 42 tools, contract_version 2.0; treated as complete, proposals go to Velisa's ROADMAP). Orchestrator: [video-production-agent](https://github.com/kajisho5/video-production-agent).
