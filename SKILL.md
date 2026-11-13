@@ -25,6 +25,11 @@ Run `nle-bridge <command> ... --json` (installed by `pip install -e .`; `pip ins
 | A cut auto-editor made (its `--export premiere` XML) | `nle-bridge import cut.xml --json`, or `diff plan.json cut.xml` (its labels, links and per-channel tracks are named in `warnings` / `not_imported`) |
 | What this skill declares | `nle-bridge contract --json` |
 
+Which one to use:
+
+- **A plain cut list** (FCPXML / EDL / OTIO) from an ffmpeg-skill render project: ffmpeg-skill `render --export-timeline`. ffmpeg-skill owns cut-list export.
+- **A round trip** with Premiere or Resolve (FCP7 XML, `conform`, `diff`, `import`), or an edit with multicam, graphics layers or stems, which ffmpeg-skill's export cannot carry: this skill. Its OTIO / EDL `export` stays for those inputs.
+
 ## How to use it well
 
 1. Prefer OTIO for both NLEs; add FCP7 XML for Premiere versions without OTIO import, and the EDL for anything else. The SRT always travels next to them.
