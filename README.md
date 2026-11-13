@@ -18,6 +18,8 @@ Timeline interchange with Premiere Pro and DaVinci Resolve, for the [Velisa](htt
 
 Typical use: [video-production-agent](https://github.com/kajisho5/video-production-agent) plans a rough cut. `export` hands it to an editor as a timeline Premiere or Resolve imports. `conform` packs it with what is needed to relink the media on another machine. When the editor is done, the NLE exports OTIO (or FCP7 XML / EDL) and `diff` says what changed: which cuts moved and by how many frames, which clips were trimmed, added or removed, which markers changed. With a beat grid (the music bed's beats, from ffmpeg-skill `scenes --beats` or stated by whatever generated the music), the timelines carry bar and beat markers, and `diff` says how many frames each cut sits off the nearest beat.
 
+**A plain cut list, or a round trip?** ffmpeg-skill owns cut-list export (`カットリスト書き出し`): for a plain cut list (FCPXML / EDL / OTIO) from an ffmpeg-skill render project, use ffmpeg-skill `render --export-timeline`. This skill owns the NLE round trip: FCP7 XML, `conform`, `diff` and `import`, and the inputs ffmpeg-skill's export cannot carry (multicam, graphics layers, stems), for which this skill's OTIO / EDL `export` stays. Settled by the [Velisa ownership decisions 2026-11-12](https://github.com/kajisho5/Velisa/blob/main/docs/ecosystem/DECISION_LOG.md) (D26).
+
 This skill writes and reads files. It does not drive a running NLE: live control is left to the community MCP servers (Velisa ROADMAP, "Premiere Pro and DaVinci Resolve"), and none of their code is used here. [docs/live-control.md](docs/live-control.md) says which two to run beside it, at which pinned versions, with their script tools and telemetry off.
 
 ```bash
