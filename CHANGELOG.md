@@ -1,30 +1,8 @@
 # Changelog
 
-## v0.1.1 - 2026-11-19
+## 0.1.1 - 2026-11-19
 
 - ci: run contract-diff on every pull request (#19) (c05524a)
-
-## v0.1.0 - 2026-11-19
-
-- ci: release on push to main (version from PR labels, tag and GitHub Release) (#18) (6d19656)
-- ci: call Velisa's contract-diff on contract changes, one run per pull request (#17) (72a4650)
-- ci: commit the contract as contract/contract.json (#16) (357fc75)
-- docs: cut-list export and the NLE round trip, written down (roadmap step 17) (#15) (2f4e7fb)
-- docs(roadmap): add the ownership decisions of 2026-11-12 (#14) (defcee9)
-- Roadmap step 16: stems and loudness versions in the package (#13) (886559a)
-- Roadmap step 15: multicam sources for the editor (#12) (a949825)
-- Roadmap step 14: graphics layers on upper tracks (#11) (cccee88)
-- Roadmap step 13: timelines written by auto-editor (#10) (4ad2e78)
-- docs(roadmap): step 7 done (agent reads diff + --timeline-out back) (#9) (a04cd61)
-- docs(roadmap): field review steps 14-16 (2026-11-05) (#8) (6cea5f6)
-- docs(roadmap): step 13 (timelines written by auto-editor) and review (#7) (b5c5ffb)
-- Roadmap step 7: link the agent-side export / conform (video-production-agent #101) (#6) (3e23f60)
-- Media start timecode from ffmpeg-skill probe (step 12) (#5) (c0ab78f)
-- Fold Premiere's per-channel audio copies back into one clip in diff (step 11) (#4) (1e672d4)
-- Cross dissolves centred on the cut in OTIO, FCP7 XML and EDL (step 10) (#3) (fe61b4a)
-- Live control by reuse (step 9) and the media start timecode hand-over (step 12) (#2) (74a8362)
-- nle-bridge-skill 0.1.0: OTIO / FCP7 XML / EDL + SRT export, conform packages, round-trip diff, beat-grid markers (#1) (ce59483)
-- Initial commit (e32610e)
 
 ## 0.1.0 (before the first release)
 
