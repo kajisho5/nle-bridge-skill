@@ -104,6 +104,8 @@ Picture size, rate and length come from ffmpeg-skill `probe` when ffmpeg-skill i
 | `contract --json` | Machine-readable contract in Velisa's registry shape |
 | `doctor --json` | Python, ffmpeg-skill (optional), opentimelineio (optional) |
 
+`contract/contract.json` is the contract committed as a file (`nle-bridge contract --json` as one line with sorted keys, compact separators and a final newline), so the contract of any commit or tag is `git show <ref>:contract/contract.json`, with nothing installed or run. Regenerate it with `python contract/generate.py`; a unit test fails when it is stale.
+
 Every command prints one JSON document with `--json`. Existing outputs are refused without `--overwrite`, and an output equal to an input is refused. Exit codes: 0 ok, 2 invalid input or arguments, 3 ffmpeg-skill lacks `probe`, 4 ffmpeg-skill failed, 5 `--strict` and something would be dropped.
 
 ## Limits
