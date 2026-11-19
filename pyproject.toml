@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nle-bridge-skill"
-version = "0.1.1"
+version = "0.1.2"
 description = "Timeline interchange with Premiere Pro and DaVinci Resolve: OTIO, FCP7 XML and CMX 3600 EDL with an SRT sidecar, conform packages with a relink manifest, beat-grid markers, and the round trip of the editor's changes as a diff. Local, no network, no live NLE control."
 readme = "README.md"
 license = {text = "MIT"}
