@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 - 2026-11-20
+
+- fix: accept ffmpeg-skill 4.x (>=2.0.0 <5.0.0); test the release commit with the test extra (#24) (ebf3a9f)
+
 ## 0.1.3 - 2026-11-20
 
 - fix(timecode): conform to velisa/timebase@1 (NTSC 23.98, half up, no 24:00:00:00) (#23) (cc53ff1)
