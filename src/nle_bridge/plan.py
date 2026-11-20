@@ -34,7 +34,7 @@ from .layers import add_layers
 from .multicam import check as check_multicam, from_result, is_multicam_result
 from .model import (NleBridgeError, asset_start_frames, base_name, normalise, rate_of, resolve_path, take_probe_timecode,
                     warning)
-from .timecode import TimecodeError, parse_rate, rate_str, seconds_to_frames
+from .timecode import TimecodeError, parse_rate, rate_str, round_half_up, seconds_to_frames
 
 Prober = Callable[[str], Optional[Dict[str, Any]]]
 
@@ -303,14 +303,14 @@ def _render_dissolves(v_items: List[Dict[str, Any]], a_items: List[Dict[str, Any
         src_out = seconds_to_frames(out if out is not None else assets[it["asset"]]["duration"], r)
         if src_out <= src_in:
             raise NleBridgeError("INVALID_PLAN", f"clips[{i}]: out is not after in")
-        length = int(round((src_out - src_in) / speed))
+        length = round_half_up((src_out - src_in) / speed)
         head = half_b if i > 0 else 0
         tail = half_a if i < len(v_items) - 1 else 0
         visible = length - head - tail
         if visible <= 0:
             raise NleBridgeError("INVALID_PLAN", f"clips[{i}] is shorter than its transitions ({d} frames each)")
-        s_in = src_in + int(round(head * speed))
-        frames = {"source_in": s_in, "source_out": s_in + int(round(visible * speed)), "record_in": pos,
+        s_in = src_in + round_half_up(head * speed)
+        frames = {"source_in": s_in, "source_out": s_in + round_half_up(visible * speed), "record_in": pos,
                   "record_out": pos + visible}
         if i > 0:
             frames["transition_in"] = {"type": t_type if t_type != "fade" else "dissolve", "frames": d}

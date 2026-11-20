@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote, unquote, urlparse
 
 from .timecode import (DROP_FRAME_RATES, TimecodeError, check_drop_frame, frames_to_timecode, parse_rate, rate_str,
-                       seconds_to_frames, timecode_to_frames)
+                       round_half_up, seconds_to_frames, timecode_to_frames)
 
 TIMELINE_SCHEMA = "nle-bridge/timeline@1"
 DEFAULT_START_TC = "01:00:00:00"
@@ -282,7 +282,7 @@ def normalise(doc: Dict[str, Any], *, base_dir: Optional[str] = None, rate: Any 
             if not speed > 0:
                 raise NleBridgeError("INVALID_PLAN", f"{where}: speed must be positive")
             rec_out = _int(it["record_out"], f"{where}.record_out") if "record_out" in it else \
-                rec_in + max(1, int(round(Fraction(length) / Fraction(str(speed)))))
+                rec_in + max(1, round_half_up(Fraction(length) / Fraction(str(speed))))
             if rec_out <= rec_in:
                 raise NleBridgeError("INVALID_PLAN", f"{where}: record range is empty")
             if rec_out - rec_in != length and abs(speed - 1.0) < 1e-9:

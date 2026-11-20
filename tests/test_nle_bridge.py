@@ -177,7 +177,7 @@ class TimecodeTests(unittest.TestCase):
         self.assertEqual(seconds_to_frames(Fraction(1001, 30000), r), 1)
         self.assertEqual(seconds_to_frames("0.0333667", r), 1)
         self.assertEqual(seconds_to_frames(1.001, r), 30)
-        self.assertEqual(seconds_to_frames(0.02, Fraction(25)), 0)  # half a frame: ties to even, as ffmpeg-skill
+        self.assertEqual(seconds_to_frames(0.02, Fraction(25)), 1)  # half a frame goes up (velisa/timebase@1 TB-4)
         self.assertEqual(seconds_to_frames(0.06, Fraction(25)), 2)
         self.assertEqual(seconds_to_frames(0.021, Fraction(25)), 1)
 
@@ -188,7 +188,7 @@ class ModelTests(TmpCase):
         tl = normalise(sample_plan("25"))
         v = tl["tracks"][0]["items"]
         self.assertEqual([(i["source_in"], i["source_out"], i["record_in"], i["record_out"]) for i in v],
-                         [(25, 125, 0, 100), (50, 112, 100, 162), (750, 825, 200, 275)])
+                         [(25, 125, 0, 100), (50, 113, 100, 163), (750, 825, 200, 275)])  # 4.5 s = 112.5: up
         self.assertEqual(tl["markers"][0]["at_frame"], 25)
         self.assertEqual(tl["start_timecode"], "01:00:00:00")
         self.assertEqual(normalise(tl), tl)  # idempotent
@@ -197,7 +197,7 @@ class ModelTests(TmpCase):
         p = sample_plan("25")
         p["tracks"][0]["items"][1]["speed"] = 2
         it = normalise(p)["tracks"][0]["items"][1]
-        self.assertEqual((it["source_out"] - it["source_in"], it["record_out"] - it["record_in"], it["speed"]), (62, 31, 2.0))
+        self.assertEqual((it["source_out"] - it["source_in"], it["record_out"] - it["record_in"], it["speed"]), (63, 32, 2.0))
 
     def test_refusals(self):
         cases = [
@@ -343,9 +343,9 @@ class WarningTests(TmpCase):
         self.assertEqual(len([t for t in load(files["otio"])["tracks"] if t["kind"] == "video"]), 2)
         self.assertEqual(len([t for t in load(files["fcp7"])["tracks"] if t["kind"] == "video"]), 2)
         self.assertEqual(len([t for t in load(files["edl"], rate=25)["tracks"] if t["kind"] == "video"]), 1)
-        # a speed change keeps the cut points: c2 is 31 frames on the timeline (62 / 2), written at 100 %
+        # a speed change keeps the cut points: c2 is 32 frames on the timeline (63 / 2, a half up), written at 100 %
         c2 = next(i for i in load(files["otio"])["tracks"][0]["items"] if i["id"] == "c2")
-        self.assertEqual((c2["record_in"], c2["record_out"], c2["source_in"], c2["source_out"]), (100, 131, 50, 81))
+        self.assertEqual((c2["record_in"], c2["record_out"], c2["source_in"], c2["source_out"]), (100, 132, 50, 82))
 
     def test_strict_refuses_before_writing(self):
         p = sample_plan("25")
@@ -434,7 +434,7 @@ class BeatTests(TmpCase):
         self.assertEqual([m["marked_range"]["start_time"]["value"] for m in bars[:3]], [0.0, 50.0, 100.0])
         edl_text = Path(files["edl"]).read_text(encoding="utf-8")
         self.assertIn("* LOC: 01:00:02:00 RED     Bar 2", edl_text)
-        self.assertIn("* LOC: 01:00:00:12 CYAN    Beat 1.2", edl_text)  # 0.5 s at 25 fps = 12.5 frames, ties to even
+        self.assertIn("* LOC: 01:00:00:13 CYAN    Beat 1.2", edl_text)  # 0.5 s at 25 fps = 12.5 frames, a half up
         xml = Path(files["fcp7"]).read_text(encoding="utf-8")
         self.assertIn("<name>Bar 2</name>", xml)
         # read back: kinds and colours survive OTIO and EDL; FCP7 recovers the kind from the name
@@ -550,7 +550,7 @@ class DiffTests(TmpCase):
         self.assertEqual((first["beat"]["beat"], first["beat"]["offset_frames"], first["beat"]["on_beat"]), ("2.1", 3.0, False))
         self.assertTrue(first["beat"]["is_bar"])
         self.assertEqual(second["status"], "unchanged")
-        self.assertEqual((second["beat"]["offset_frames"], second["beat"]["on_beat"]), (-0.5, True))  # 4.5 s = 112.5 f, cut at 112
+        self.assertEqual((second["beat"]["offset_frames"], second["beat"]["on_beat"]), (0.5, True))  # 4.5 s = 112.5 f, cut at 113
         b = d["beats"]
         self.assertEqual((b["plan_on_beat"], b["returned_on_beat"], b["moved_off_beat"]), (2, 1, 1))
         self.assertEqual(b["max_abs_offset_frames"], 3.0)
@@ -642,11 +642,11 @@ class DissolveTests(TmpCase):
         self.assertIn("<effectid>KGAudioTransCrossFade3dB</effectid>", xml)
         # c1 ends at -1 with 12 frames of tail in its out; c2 starts at -1 with 13 frames of head in its in
         self.assertIn("<start>0</start>\n            <end>-1</end>\n            <in>25</in>\n            <out>137</out>", xml)
-        self.assertIn("<start>-1</start>\n            <end>162</end>\n            <in>37</in>\n            <out>112</out>", xml)
+        self.assertIn("<start>-1</start>\n            <end>163</end>\n            <in>37</in>\n            <out>113</out>", xml)
         edl = Path(files["edl"]).read_text(encoding="utf-8")
         self.assertIn("001  AX       V     C        10:00:01:00 10:00:04:12 01:00:00:00 01:00:03:12\n", edl)
         self.assertIn("004  AX       V     C        10:00:04:12 10:00:04:12 01:00:03:12 01:00:03:12\n"
-                      "004  AX       V     D    025 00:00:01:12 00:00:04:12 01:00:03:12 01:00:06:12\n"
+                      "004  AX       V     D    025 00:00:01:12 00:00:04:13 01:00:03:12 01:00:06:13\n"
                       "* FROM CLIP NAME: cam a.mov\n* TO CLIP NAME: cam_b.mov\n", edl)
 
     def test_dissolves_that_cannot_be_written_are_named(self):
@@ -664,7 +664,7 @@ class DissolveTests(TmpCase):
         self.assertIn("13 frame(s) of media before its in point", msg)
         self.assertNotIn("Transition.1", "".join(t for f, t in res["texts"].items() if f == "otio").split('"V1"')[0])
         p["tracks"][0]["items"][1].update({"in": 2, "out": 4.5})
-        p["tracks"][0]["items"][1]["transition_in"] = {"type": "dissolve", "duration": 6}  # 75 + 75 frames, c2 is 62
+        p["tracks"][0]["items"][1]["transition_in"] = {"type": "dissolve", "duration": 6}  # 75 + 75 frames, c2 is 63
         res = render(normalise(p), ["otio"], dissolves=True)
         self.assertIn("do not fit", next(w["message"] for w in res["warnings"] if w["item"] == "c2"))
         # without --dissolves every transition is a hard cut, each named; --strict refuses
@@ -715,12 +715,12 @@ class DissolveTests(TmpCase):
         tl = load(path)  # without --dissolves: hard cuts, the render's length plus the dissolve, named
         self.assertEqual([(i["record_in"], i["record_out"]) for i in tl["tracks"][0]["items"]], [(0, 63), (63, 103)])
         self.assertIn("TRANSITION_NOT_EXPORTED", [w["code"] for w in tl["warnings"]])
-        tl = load(path, dissolves=True)  # 0.5 s = 12 frames (12.5, ties to even): 6 of tail, 6 of head; 3.5 s = 88
+        tl = load(path, dissolves=True)  # 0.5 s = 13 frames (12.5, a half up): 6 of tail, 7 of head; 3.5 s = 88
         for t in tl["tracks"]:
             a, b = t["items"]
             self.assertEqual((a["source_in"], a["source_out"], a["record_in"], a["record_out"]), (25, 82, 0, 57))
-            self.assertEqual((b["source_in"], b["source_out"], b["record_in"], b["record_out"]), (16, 50, 57, 91))
-            self.assertEqual(b["transition_in"], {"type": "dissolve", "frames": 12, "before": 6})
+            self.assertEqual((b["source_in"], b["source_out"], b["record_in"], b["record_out"]), (17, 50, 57, 90))
+            self.assertEqual(b["transition_in"], {"type": "dissolve", "frames": 13, "before": 7})
         self.assertNotIn("TRANSITION_NOT_EXPORTED", [w["code"] for w in tl["warnings"]])
         res = render(tl, ["otio", "fcp7", "edl"], dissolves=True)
         self.assertFalse([w for w in res["warnings"] if w["code"].startswith("TRANSITION")])
@@ -1011,7 +1011,7 @@ class MulticamTests(TmpCase):
                              [("camA.mp4", 0), ("camB.mp4", 30)], fmt)
             v1 = back["tracks"][0]["items"]
             self.assertEqual([(i["multicam"]["angle"], i["source_in"], i["record_in"], i["record_out"]) for i in v1],
-                             [(0, 0, 0, 50), (1, 20, 50, 112), (0, 112, 112, 150), (1, 120, 150, 200)], fmt)
+                             [(0, 0, 0, 50), (1, 20, 50, 113), (0, 113, 113, 150), (1, 120, 150, 200)], fmt)
             d = diff(plan, back)
             self.assertTrue(d["summary"]["identical"], (fmt, d["summary"]))
             self.assertTrue(d["multicam"]["offsets_match"], d["multicam"])
@@ -1019,7 +1019,7 @@ class MulticamTests(TmpCase):
         # the EDL carries the switched cut as plain clips
         edl_back = load(files["edl"], rate=25)
         self.assertEqual([(i["source_in"], i["record_in"], i["record_out"]) for i in edl_back["tracks"][0]["items"]],
-                         [(0, 0, 50), (20, 50, 112), (112, 112, 150), (120, 150, 200)])
+                         [(0, 0, 50), (20, 50, 113), (113, 113, 150), (120, 150, 200)])
 
     @unittest.skipUnless(HAVE_OTIO, OTIO_WHY)
     def test_reference_reader_sees_the_angles_in_sync(self):
@@ -1224,7 +1224,7 @@ class InputTests(TmpCase):
         for want in ("transition", "graphics", "loudness", "duck"):
             self.assertIn(want, msgs)
         b = tl["tracks"][0]["items"][1]
-        self.assertEqual((b["source_in"], b["source_out"], b["record_out"] - b["record_in"], b["speed"]), (62, 150, 59, 1.5))
+        self.assertEqual((b["source_in"], b["source_out"], b["record_out"] - b["record_in"], b["speed"]), (63, 150, 58, 1.5))
         proj["clips"][0].pop("out")
         with self.assertRaises(NleBridgeError):
             load(self.write("project2.json", proj))
@@ -1742,13 +1742,15 @@ class RealProbeTests(TmpCase):
 
     def test_reads_what_ffmpeg_skill_render_export_timeline_writes(self):
         """The same render project through ffmpeg-skill `render --export-timeline` (.otio / .edl) and through this
-        skill gives the same cut, frame for frame."""
+        skill gives the same cut, frame for frame. At 30 fps no time here falls on an exact half frame: ffmpeg-skill's
+        timeline export rounds a half to even (Python's round()), this skill a half up (velisa/timebase@1 TB-4,
+        docs/decisions.md ADR-015), and the two differ on exact halves only."""
         media = os.path.join(self.tmp, "m")
         os.makedirs(media)
         clips = []
         for n in ("a", "b"):
             p = os.path.join(media, f"{n}.mp4")
-            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=6",
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=6",
                             "-f", "lavfi", "-i", "sine=frequency=330:duration=6", "-shortest", "-c:v", "libx264",
                             "-pix_fmt", "yuv420p", "-c:a", "aac", p], check=True)
             clips.append(p)
@@ -1808,13 +1810,15 @@ class RealProbeTests(TmpCase):
 
     def test_dissolves_match_ffmpeg_skill_render_export_timeline(self):
         """render.py's default 0.5 s fade through ffmpeg-skill `render --export-timeline` and through this skill with
-        --dissolves: the same visible ranges, the same cuts, the same 12-frame dissolve (6 before, 6 after)."""
+        --dissolves: the same visible ranges, the same cuts, the same 15-frame dissolve (8 before, 7 after). At 30 fps
+        0.5 s is a whole number of frames; at 25 fps it is 12.5, where ffmpeg-skill (a half to even) and this skill (a
+        half up, ADR-015) differ."""
         media = os.path.join(self.tmp, "m")
         os.makedirs(media)
         clips = []
         for n in ("a", "b", "c"):
             p = os.path.join(media, f"{n}.mp4")
-            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=6",
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=6",
                             "-f", "lavfi", "-i", "sine=frequency=330:duration=6", "-shortest", "-c:v", "libx264",
                             "-pix_fmt", "yuv420p", "-c:a", "aac", p], check=True)
             clips.append(p)
@@ -1824,7 +1828,7 @@ class RealProbeTests(TmpCase):
         proj_path = self.write("project.json", proj)
         ours = load(proj_path, prober=engine.prober(engine.locate(str(FFMPEG_SKILL_DIR))), dissolves=True)
         self.assertEqual([i.get("transition_in") for i in ours["tracks"][0]["items"]],
-                         [None, {"type": "dissolve", "frames": 12, "before": 6}, {"type": "dissolve", "frames": 12, "before": 6}])
+                         [None, {"type": "dissolve", "frames": 15, "before": 8}, {"type": "dissolve", "frames": 15, "before": 8}])
         for ext in ("otio", "edl"):
             out = os.path.join(self.tmp, f"ffs.{ext}")
             r = subprocess.run([sys.executable, str(FFMPEG_SKILL_DIR / "scripts" / "render.py"), proj_path,
