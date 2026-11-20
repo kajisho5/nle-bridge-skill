@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .model import (DEFAULT_MARKER_COLOR, MARKER_COLORS, NleBridgeError, asset_start_frames, base_name, path_to_url,
                     rate_of, start_frames, unique_id, url_to_path, warning)
-from .timecode import frames_to_timecode, parse_rate, rate_str, seconds_to_frames
+from .timecode import frames_to_timecode, parse_rate, rate_str, round_half_up, seconds_to_frames
 from .multicam import angle_span, multicam_length
 from .transitions import AUDIO_NAME, VIDEO_NAME
 
@@ -142,7 +142,7 @@ def _frames(rt: Optional[Dict[str, Any]], rate: Fraction) -> int:
         return 0
     v, r = float(rt.get("value", 0.0)), float(rt.get("rate", float(rate)) or float(rate))
     if abs(r - float(rate)) < 1e-6:
-        return int(round(v))
+        return round_half_up(v)
     return seconds_to_frames(Fraction(v).limit_denominator(1000000) / parse_rate(r), rate)
 
 
@@ -379,6 +379,6 @@ def verify(path: str) -> Optional[Dict[str, Any]]:
         clips = list(t.find_clips()) if hasattr(t, "find_clips") else list(t.each_clip())
         return {"reader": f"opentimelineio {otio.__version__}", "ok": True, "clips": len(clips),
                 "tracks": len(t.tracks), "markers": len(t.tracks.markers),
-                "duration_frames": int(round(t.duration().value)) if not math.isnan(t.duration().value) else None}
+                "duration_frames": round_half_up(t.duration().value) if not math.isnan(t.duration().value) else None}
     except Exception as e:  # noqa: BLE001 -- any failure of the independent reader is the finding
         return {"reader": f"opentimelineio {getattr(otio, '__version__', '?')}", "ok": False, "error": str(e)}

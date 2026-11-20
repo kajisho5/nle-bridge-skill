@@ -24,7 +24,7 @@ from fractions import Fraction
 from typing import Any, Dict, List, Optional
 
 from .model import NleBridgeError, warning
-from .timecode import seconds_to_frames
+from .timecode import round_half_up, seconds_to_frames
 
 BEATGRID_SCHEMA = "nle-bridge/beatgrid@1"
 DEFAULT_BEATS_PER_BAR = 4
@@ -174,4 +174,4 @@ def nearest(grid: Dict[str, Any], frame: int, rate: Fraction, tolerance: float) 
     off = (Fraction(frame) - Fraction(str(b["t"])) * rate)
     offset = round(float(off), 3)
     return {"beat": f"{b['bar']}.{b['beat']}", "beat_time": b["t"], "is_bar": b["is_bar"], "offset_frames": offset,
-            "offset_whole_frames": int(round(offset)), "on_beat": abs(offset) <= tolerance}
+            "offset_whole_frames": round_half_up(off), "on_beat": abs(offset) <= tolerance}
