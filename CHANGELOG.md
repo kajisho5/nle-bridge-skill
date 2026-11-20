@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 - 2026-11-20
+
+- fix(timecode): conform to velisa/timebase@1 (NTSC 23.98, half up, no 24:00:00:00) (#23) (cc53ff1)
+- ci: Velisa's reusable changelog-check/release-guard; dependencies PRs release a patch (D36, D37) (#21) (5c7b8bf)
+
 ## 0.1.2 - 2026-11-19
 
 - fix(release): CHANGELOG headings in this file's form; test the release commit before pushing; no release for chore/ci/docs-only changes (#20) (bebc48e)
