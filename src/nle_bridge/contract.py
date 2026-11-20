@@ -94,7 +94,7 @@ def contract() -> Dict[str, Any]:
                       "input_artifact_types": ["timeline", "project_ir"], "output_artifact_types": ["timeline"],
                       "mutates_input": False}],
         "dependencies": [{"id": "ffmpeg-skill", "skill_id": "ffmpeg-skill", "kind": "skill", "required": False,
-                          "version_range": ">=2.0.0 <4.0.0", "tools": list(REQUIRED_TOOLS),
+                          "version_range": ">=2.0.0 <5.0.0", "tools": list(REQUIRED_TOOLS),
                           "for": ["nle-bridge/conform (media facts for the relink manifest)",
                                   "nle-bridge/export of a render project without out points (clip lengths)",
                                   "media start timecodes for OTIO / FCP7 XML / EDL source timecodes and relink.json "

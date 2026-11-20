@@ -207,7 +207,7 @@ The hand-over said to raise the floor to the release that adds the field. That r
 
 - **`version_range: ">=2.0.0 <4.0.0"`**, with `fields: {"probe.timecode": {"since": "3.0.0", ...}}` in the contract.
 - **Feature detection, not version checks**, in the code path: a probe document with a `timecode` object is read; one without it (2.x) leaves the start timecode not known, exactly as before. `doctor` reads the version only to add a note (`engine.probe_timecode`).
-- **Upper bound `<4.0.0`**: 3.x keeps every probe key by ffmpeg-skill's stability promise; a 4.0 is re-checked first.
+- **Upper bound `<4.0.0`**: 3.x keeps every probe key by ffmpeg-skill's stability promise; a 4.0 is re-checked first. (Re-checked for 4.0.0 and widened to `<5.0.0` in ADR-016.)
 
 ### Decision
 
@@ -419,3 +419,37 @@ Velisa's timebase spec lists three places where this skill differs from it. `par
 - A time exactly half-way between two frames lands one frame later than before (0.5 s at 25 fps is frame 13, not 12; a 0.5 s render-project fade at 25 fps is 13 frames). Other times are unchanged.
 - ffmpeg-skill's `timeline.py` still rounds a half to even, so on exact halves its `render --export-timeline` and this skill differ by a frame, and `diff` of the two reports such a cut as moved. The integration tests that compare the two run at 30 fps, where none of their times is a half frame. ffmpeg-skill is listed in Velisa ADR-026; it is not changed here.
 - A timeline that would run past 23:59:59:xx (a late start timecode plus a long programme) is refused instead of written with an hour 24 that NLEs do not read.
+
+## ADR-016 ffmpeg-skill 4.x accepted (`>=2.0.0 <5.0.0`)
+
+2026-11-20. Checked against ffmpeg-skill v4.0.0 (CHANGELOG "4.0.0", the 3.15.1 to 4.0.0 contract diff).
+
+### Context
+
+ffmpeg-skill 4.0.0 keeps `contract_version` 2.0 and removes no tool or flag. Its breaking changes are in `export` (platform presets normalise loudness by default; an unmet required field exits 1 with `kind: verification`), `fit` (`--method` beyond 1.15x), `join --copy` (AAC drift over 50 ms refused), `waveform` (conditional audio re-encode) and `--transcribe` (`english_only`). This skill calls only `probe`; the tests also read `render --export-timeline` files. `probe` is one of the 12 tools 4.x marks `stable`, and the keys read here (`duration`, `video.fps` / `width` / `height`, `audio.channels`, `timecode`) are unchanged. Python 3.10+ and FFmpeg 6.1+ are unchanged from 3.x.
+
+### Decision
+
+- **`version_range: ">=2.0.0 <5.0.0"`.** No code path changes: the start timecode is still read by feature detection (ADR-008), and `engine.probe_timecode` (`major >= 3`) is already true for 4.x.
+- **CI.** The integration job adds a `v4.0.0` leg; `v3.0.0`, `v2.24.1` and `main` stay.
+
+### Consequences
+
+- The contract's `dependencies[ffmpeg-skill].version_range` changes, so a byte-for-byte pin of this contract needs a re-pin. No command, option, output document or `contract_version` changed.
+
+## ADR-017 The release commit is tested with the extras CI installs
+
+2026-11-20. The same fix as media-analysis-skill ADR-039.
+
+### Context
+
+The release job's step "Test the release commit before pushing it" ran `unittest discover` on the `pip install -e .` made for regenerating the contract, without the `test` extra. tests.yml installs `.[test]` (opentimelineio and its FCP7 XML / CMX 3600 adapters), and the unit job fails if the reference-reader tests are skipped. The release step therefore tested less than CI did, and a test that needs an extra unconditionally would stop the release, as it did in media-analysis-skill.
+
+### Decision
+
+- The release test step installs `-e ".[test]"`, the same as tests.yml, before running the tests.
+- `tests/test_release_scripts.py` (`test_the_release_commit_is_tested_with_the_extras_ci_installs`) checks that every editable install in tests.yml names the same extras and that the release test step installs exactly those.
+
+### Consequences
+
+- Adding an extra to tests.yml without adding it to the release step fails the unit tests.

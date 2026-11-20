@@ -133,9 +133,12 @@ jobs:
 
       # The release commit is pushed with GITHUB_TOKEN, so no workflow runs on it on main: test it here, before
       # it is pushed. A failure stops the release; main and the tags stay as they were (Velisa ADR-023).
+      # The same install as tests.yml, the test extra included: the reference-reader tests import opentimelineio and
+      # its adapters (ADR-017; tests/test_release_scripts.py checks the two installs name the same extras).
       - name: Test the release commit before pushing it
         if: steps.compute.outputs.should_release == 'true'
         run: |
+          python3 -m pip install -q -e ".[test]"
           python3 -m unittest discover -s tests
 
       - name: Push the release commit and tag
