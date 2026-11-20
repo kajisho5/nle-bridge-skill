@@ -207,6 +207,24 @@ class ReleaseWorkflowOrderTests(unittest.TestCase):
             self.assertLess(test_step, push)
         self.assertIn("RELEASABLE: ${{ steps.gate.outputs.releasable }}", text)
 
+    def test_the_release_commit_is_tested_with_the_extras_ci_installs(self):
+        # ADR-017: the release test step installs the extras tests.yml installs, so a test CI runs with an optional
+        # extra (opentimelineio and its adapters) is not run without it on the release commit.
+        def installed_extras(text):
+            found = re.findall(r"pip install (?:-q )?-e \"?\.(?:\[([^\]]*)\])?\"?", text)
+            self.assertTrue(found, "no editable install of the package")
+            return {tuple(sorted(x.strip() for x in g.split(",") if x.strip())) for g in found}
+
+        with open(os.path.join(ROOT, ".github", "workflows", "release.yml"), encoding="utf-8") as fh:
+            release = fh.read()
+        with open(os.path.join(ROOT, ".github", "workflows", "tests.yml"), encoding="utf-8") as fh:
+            ci = installed_extras(fh.read())
+        step = release[release.index("- name: Test the release commit before pushing it"):]
+        step = step[:step.index("- name:", 1)]
+        self.assertEqual(len(ci), 1, f"tests.yml's jobs install different extras: {ci}")
+        self.assertTrue(next(iter(ci)), "tests.yml installs no extra")
+        self.assertEqual(installed_extras(step), ci)
+
 
 if __name__ == "__main__":
     unittest.main()
